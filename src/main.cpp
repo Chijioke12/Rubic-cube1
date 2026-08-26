@@ -179,12 +179,12 @@ void render() {
     glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, identity.m);
 
     Color buttonColors[6] = {
-        {255, 255, 0, 255},   // UP Yellow
-        {255, 255, 255, 255}, // DOWN White
-        {0, 0, 255, 255},     // LEFT Blue
-        {0, 255, 0, 255},     // RIGHT Green
-        {255, 0, 0, 255},     // FRONT Red
-        {255, 165, 0, 255}    // BACK Orange
+        YELLOW, // UP Yellow
+        WHITE,  // DOWN White
+        BLUE,   // LEFT Blue
+        GREEN,  // RIGHT Green
+        RED,    // FRONT Red
+        ORANGE  // BACK Orange
     };
     
     for(int i=0; i<6; i++) {
