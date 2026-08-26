@@ -5,11 +5,24 @@
 #else
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
+#define EMSCRIPTEN_KEEPALIVE
 #endif
 #include "cube.h"
 #include "math_utils.h"
 #include <vector>
 #include <iostream>
+
+extern "C" {
+    EMSCRIPTEN_KEEPALIVE
+    void rotate_cube_face(int face, int clockwise) {
+        cube.rotateFace((Face)face, clockwise != 0);
+    }
+    
+    EMSCRIPTEN_KEEPALIVE
+    void scramble_cube() {
+        cube.scramble();
+    }
+}
 
 const char* vShaderSource = 
     "attribute vec3 aPos;"
@@ -63,14 +76,14 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
         case GREEN: sc = {0, 255, 0, 255}; break;
     }
     float r = (sc.r/255.0f) * brightness, g = (sc.g/255.0f) * brightness, b = (sc.b/255.0f) * brightness;
-    // CCW order for front-face culling: p1, p4, p3 and p1, p3, p2
+    // CCW order for front-face culling: BL->BR->TR and BL->TR->TL
     float quad[] = {
-        p1.x, p1.y, p1.z, r, g, b, 1.0f,
         p4.x, p4.y, p4.z, r, g, b, 1.0f,
         p3.x, p3.y, p3.z, r, g, b, 1.0f,
-        p1.x, p1.y, p1.z, r, g, b, 1.0f,
-        p3.x, p3.y, p3.z, r, g, b, 1.0f,
-        p2.x, p2.y, p2.z, r, g, b, 1.0f
+        p2.x, p2.y, p2.z, r, g, b, 1.0f,
+        p4.x, p4.y, p4.z, r, g, b, 1.0f,
+        p2.x, p2.y, p2.z, r, g, b, 1.0f,
+        p1.x, p1.y, p1.z, r, g, b, 1.0f
     };
     vertices.insert(vertices.end(), quad, quad + 42);
 }
@@ -106,11 +119,11 @@ void render() {
                 
                 float xL = x+g, xR = x2-g, yT = y-g, yB = y2+g;
 
-                if (f == UP) drawQuad(vertices, {xL, 1.5, -yT}, {xR, 1.5, -yT}, {xR, 1.5, -yB}, {xL, 1.5, -yB}, c, b);
-                if (f == DOWN) drawQuad(vertices, {xL, -1.5, yT}, {xR, -1.5, yT}, {xR, -1.5, yB}, {xL, -1.5, yB}, c, b);
+                if (f == UP)    drawQuad(vertices, {xL, 1.5, -yT}, {xR, 1.5, -yT}, {xR, 1.5, -yB}, {xL, 1.5, -yB}, c, b);
+                if (f == DOWN)  drawQuad(vertices, {xL, -1.5, yT}, {xR, -1.5, yT}, {xR, -1.5, yB}, {xL, -1.5, yB}, c, b);
                 if (f == FRONT) drawQuad(vertices, {xL, yT, 1.5}, {xR, yT, 1.5}, {xR, yB, 1.5}, {xL, yB, 1.5}, c, b);
-                if (f == BACK) drawQuad(vertices, {-xL, yT, -1.5}, {-xR, yT, -1.5}, {-xR, yB, -1.5}, {-xL, yB, -1.5}, c, b);
-                if (f == LEFT) drawQuad(vertices, {-1.5, yT, -xL}, {-1.5, yT, -xR}, {-1.5, yB, -xR}, {-1.5, yB, -xL}, c, b);
+                if (f == BACK)  drawQuad(vertices, {xR, yT, -1.5}, {xL, yT, -1.5}, {xL, yB, -1.5}, {xR, yB, -1.5}, c, b);
+                if (f == LEFT)  drawQuad(vertices, {-1.5, yT, xR}, {-1.5, yT, xL}, {-1.5, yB, xL}, {-1.5, yB, xR}, c, b);
                 if (f == RIGHT) drawQuad(vertices, {1.5, yT, xL}, {1.5, yT, xR}, {1.5, yB, xR}, {1.5, yB, xL}, c, b);
             }
         }
@@ -168,6 +181,20 @@ void mainLoop() {
     SDL_GL_SwapWindow(window);
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/em_js.h>
+EM_JS(void, setup_js_listener, (), {
+    window.addEventListener("message", (event) => {
+        if (event.data && event.data.type === "ROTATE_FACE") {
+            _rotate_cube_face(event.data.face, event.data.clockwise);
+        }
+        if (event.data && event.data.type === "SCRAMBLE") {
+            _scramble_cube();
+        }
+    });
+});
+#endif
+
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -176,6 +203,7 @@ int main(int argc, char* argv[]) {
     SDL_GL_CreateContext(window);
     initGL();
 #ifdef __EMSCRIPTEN__
+    setup_js_listener();
     emscripten_set_main_loop(mainLoop, 0, 1);
 #else
     while (running) { mainLoop(); SDL_Delay(16); }
