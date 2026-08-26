@@ -246,7 +246,7 @@ unsigned short gCubeIndices[36] = {
 };
 
 // -------------------------------------------------------------
-// Procedural Sticker Texture Creation
+// Procedural Sticker Texture Creation (Heap Allocated)
 // -------------------------------------------------------------
 struct RGBA { unsigned char r, g, b, a; };
 
@@ -262,7 +262,7 @@ const RGBA COLOR_CORE = { 18, 18, 20, 255 }; // Matte Black
 
 void CreateProceduralTextures() {
     const int TEX_SIZE = 256;
-    RGBA pixels[TEX_SIZE * TEX_SIZE];
+    std::vector<RGBA> pixels(TEX_SIZE * TEX_SIZE);
 
     // Generate 6 Sticker textures (Rounded glossy face with black rim)
     for (int t = 0; t < 6; ++t) {
@@ -274,7 +274,6 @@ void CreateProceduralTextures() {
 
         for (int y = 0; y < TEX_SIZE; ++y) {
             for (int x = 0; x < TEX_SIZE; ++x) {
-                // Determine if (x,y) is inside rounded rectangle
                 bool inside = true;
                 if (x < minPos || x > maxPos || y < minPos || y > maxPos) {
                     inside = false;
@@ -290,17 +289,13 @@ void CreateProceduralTextures() {
                     }
                 }
 
-                if (inside) {
-                    pixels[y * TEX_SIZE + x] = stickerCol;
-                } else {
-                    pixels[y * TEX_SIZE + x] = COLOR_CORE;
-                }
+                pixels[y * TEX_SIZE + x] = inside ? stickerCol : COLOR_CORE;
             }
         }
 
         glGenTextures(1, &gTextures[t]);
         glBindTexture(GL_TEXTURE_2D, gTextures[t]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_SIZE, TEX_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_SIZE, TEX_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -313,7 +308,7 @@ void CreateProceduralTextures() {
     }
     glGenTextures(1, &gTextures[6]);
     glBindTexture(GL_TEXTURE_2D, gTextures[6]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_SIZE, TEX_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_SIZE, TEX_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -399,7 +394,7 @@ extern "C" {
 }
 
 // -------------------------------------------------------------
-// Interactive Raycasting & Camera Controls
+// Interactive Raycasting & Pointer Controls
 // -------------------------------------------------------------
 SDL_Window* gWindow = nullptr;
 SDL_GLContext gGLContext = nullptr;
@@ -408,9 +403,9 @@ float gCamAngleX = 45.0f * DEG2RAD_F;
 float gCamAngleY = 28.0f * DEG2RAD_F;
 float gCamRadius = 8.5f;
 
-bool gIsMouseDown = false;
+bool gIsPointerDown = false;
 bool gIsSwiping = false;
-Vec2 gLastMousePos = {0, 0};
+Vec2 gLastPointerPos = {0, 0};
 Vec3 gSwipeStartPos = {0, 0, 0};
 int gSwipeStartFace = -1;
 
@@ -419,12 +414,10 @@ struct Ray {
     Vec3 dir;
 };
 
-Ray GetMouseRay(int screenX, int screenY, int screenW, int screenH, const Mat4& proj, const Mat4& view) {
-    float ndcX = (2.0f * screenX) / screenW - 1.0f;
-    float ndcY = 1.0f - (2.0f * screenY) / screenH;
+Ray GetPointerRay(float screenX, float screenY, int screenW, int screenH, const Mat4& proj, const Mat4& view) {
+    float ndcX = (2.0f * screenX) / (float)(screenW > 0 ? screenW : 1) - 1.0f;
+    float ndcY = 1.0f - (2.0f * screenY) / (float)(screenH > 0 ? screenH : 1);
 
-    Mat4 invVP = Mat4::Multiply(proj, view);
-    // Approximate unprojection for orbit camera
     Vec3 eye = {
         gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
         gCamRadius * std::sin(gCamAngleY),
@@ -469,6 +462,104 @@ bool RayIntersectAABB(const Ray& ray, const Vec3& bmin, const Vec3& bmax, float&
     return true;
 }
 
+void HandlePointerDown(float px, float py, int screenW, int screenH) {
+    gIsPointerDown = true;
+    gLastPointerPos = {px, py};
+
+    float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
+    Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
+    Vec3 eye = {
+        gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
+        gCamRadius * std::sin(gCamAngleY),
+        gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
+    };
+    Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
+    Ray ray = GetPointerRay(px, py, screenW, screenH, proj, view);
+
+    float tHit;
+    Vec3 hitPt;
+    if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
+        gIsSwiping = true;
+        gSwipeStartPos = hitPt;
+        if (std::abs(hitPt.y - 1.5f) < 0.15f) gSwipeStartFace = 0; // U
+        else if (std::abs(hitPt.y - (-1.5f)) < 0.15f) gSwipeStartFace = 1; // D
+        else if (std::abs(hitPt.x - (-1.5f)) < 0.15f) gSwipeStartFace = 2; // L
+        else if (std::abs(hitPt.x - 1.5f) < 0.15f) gSwipeStartFace = 3; // R
+        else if (std::abs(hitPt.z - 1.5f) < 0.15f) gSwipeStartFace = 4; // F
+        else if (std::abs(hitPt.z - (-1.5f)) < 0.15f) gSwipeStartFace = 5; // B
+    } else {
+        gIsSwiping = false;
+    }
+}
+
+void HandlePointerMove(float px, float py, int screenW, int screenH) {
+    if (!gIsPointerDown) return;
+    float dx = px - gLastPointerPos.x;
+    float dy = py - gLastPointerPos.y;
+
+    if (gIsSwiping && !gIsAnimating && gMoveQueue.empty()) {
+        float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
+        Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
+        Vec3 eye = {
+            gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
+            gCamRadius * std::sin(gCamAngleY),
+            gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
+        };
+        Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
+        Ray ray = GetPointerRay(px, py, screenW, screenH, proj, view);
+
+        float tHit;
+        Vec3 hitPt;
+        if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
+            float sdx = hitPt.x - gSwipeStartPos.x;
+            float sdy = hitPt.y - gSwipeStartPos.y;
+            float sdz = hitPt.z - gSwipeStartPos.z;
+
+            float thresh = 0.30f;
+            if (std::abs(sdx) > thresh || std::abs(sdy) > thresh || std::abs(sdz) > thresh) {
+                int axis = 0; int slice = 0; float ang = PI_F / 2.0f;
+                if (gSwipeStartFace == 4) { // Front
+                    if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
+                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
+                } else if (gSwipeStartFace == 5) { // Back
+                    if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
+                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
+                } else if (gSwipeStartFace == 0) { // Up
+                    if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
+                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
+                } else if (gSwipeStartFace == 1) { // Down
+                    if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
+                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
+                } else if (gSwipeStartFace == 3) { // Right
+                    if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
+                    else { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
+                } else if (gSwipeStartFace == 2) { // Left
+                    if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
+                    else { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
+                }
+
+                StartRotation(axis, slice, ang, 6.0f);
+                gIsSwiping = false;
+            }
+        } else {
+            gIsSwiping = false;
+        }
+    } else if (!gIsSwiping) {
+        // Orbit camera
+        gCamAngleX -= dx * 0.008f;
+        gCamAngleY += dy * 0.008f;
+        if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
+        if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
+    }
+
+    gLastPointerPos = {px, py};
+}
+
+void HandlePointerUp() {
+    gIsPointerDown = false;
+    gIsSwiping = false;
+}
+
 // -------------------------------------------------------------
 // Main Loop & Frame Rendering
 // -------------------------------------------------------------
@@ -503,7 +594,7 @@ void RenderFrame() {
 
             for (auto& c : gCubies) {
                 float v = (gAnimSliceAxis == 0) ? c.logicalPos.x : ((gAnimSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
-                if (std::abs(v - gAnimSliceValue) < 0.1f) {
+                if (std::abs(v - (float)gAnimSliceValue) < 0.1f) {
                     // Update logical coordinate
                     c.logicalPos = Mat4::TransformPoint(finalRot, c.logicalPos);
                     c.logicalPos.x = std::round(c.logicalPos.x);
@@ -586,7 +677,7 @@ void RenderFrame() {
         Mat4 model = c.baseTransform;
         if (gIsAnimating) {
             float v = (gAnimSliceAxis == 0) ? c.logicalPos.x : ((gAnimSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
-            if (std::abs(v - gAnimSliceValue) < 0.1f) {
+            if (std::abs(v - (float)gAnimSliceValue) < 0.1f) {
                 model = Mat4::Multiply(animRot, c.baseTransform);
             }
         }
@@ -616,96 +707,17 @@ void ProcessEvents() {
             exit(0);
 #endif
         } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-            gIsMouseDown = true;
-            gLastMousePos = {(float)e.button.x, (float)e.button.y};
-
-            float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-            Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-            Vec3 eye = {
-                gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-                gCamRadius * std::sin(gCamAngleY),
-                gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-            };
-            Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
-            Ray ray = GetMouseRay(e.button.x, e.button.y, screenW, screenH, proj, view);
-
-            float tHit;
-            Vec3 hitPt;
-            if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
-                gIsSwiping = true;
-                gSwipeStartPos = hitPt;
-                if (std::abs(hitPt.y - 1.5f) < 0.15f) gSwipeStartFace = 0; // U
-                else if (std::abs(hitPt.y - (-1.5f)) < 0.15f) gSwipeStartFace = 1; // D
-                else if (std::abs(hitPt.x - (-1.5f)) < 0.15f) gSwipeStartFace = 2; // L
-                else if (std::abs(hitPt.x - 1.5f) < 0.15f) gSwipeStartFace = 3; // R
-                else if (std::abs(hitPt.z - 1.5f) < 0.15f) gSwipeStartFace = 4; // F
-                else if (std::abs(hitPt.z - (-1.5f)) < 0.15f) gSwipeStartFace = 5; // B
-            } else {
-                gIsSwiping = false;
-            }
+            HandlePointerDown((float)e.button.x, (float)e.button.y, screenW, screenH);
         } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
-            gIsMouseDown = false;
-            gIsSwiping = false;
-        } else if (e.type == SDL_MOUSEMOTION && gIsMouseDown) {
-            float dx = (float)e.motion.x - gLastMousePos.x;
-            float dy = (float)e.motion.y - gLastMousePos.y;
-
-            if (gIsSwiping && !gIsAnimating && gMoveQueue.empty()) {
-                float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-                Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-                Vec3 eye = {
-                    gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-                    gCamRadius * std::sin(gCamAngleY),
-                    gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-                };
-                Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
-                Ray ray = GetMouseRay(e.motion.x, e.motion.y, screenW, screenH, proj, view);
-
-                float tHit;
-                Vec3 hitPt;
-                if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
-                    float sdx = hitPt.x - gSwipeStartPos.x;
-                    float sdy = hitPt.y - gSwipeStartPos.y;
-                    float sdz = hitPt.z - gSwipeStartPos.z;
-
-                    float thresh = 0.30f;
-                    if (std::abs(sdx) > thresh || std::abs(sdy) > thresh || std::abs(sdz) > thresh) {
-                        int axis = 0; int slice = 0; float ang = PI_F / 2.0f;
-                        if (gSwipeStartFace == 4) { // Front
-                            if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = std::round(gSwipeStartPos.y); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
-                            else { axis = 0; slice = std::round(gSwipeStartPos.x); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
-                        } else if (gSwipeStartFace == 5) { // Back
-                            if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = std::round(gSwipeStartPos.y); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
-                            else { axis = 0; slice = std::round(gSwipeStartPos.x); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
-                        } else if (gSwipeStartFace == 0) { // Up
-                            if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = std::round(gSwipeStartPos.z); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
-                            else { axis = 0; slice = std::round(gSwipeStartPos.x); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
-                        } else if (gSwipeStartFace == 1) { // Down
-                            if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = std::round(gSwipeStartPos.z); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
-                            else { axis = 0; slice = std::round(gSwipeStartPos.x); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
-                        } else if (gSwipeStartFace == 3) { // Right
-                            if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = std::round(gSwipeStartPos.y); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
-                            else { axis = 2; slice = std::round(gSwipeStartPos.z); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
-                        } else if (gSwipeStartFace == 2) { // Left
-                            if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = std::round(gSwipeStartPos.y); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
-                            else { axis = 2; slice = std::round(gSwipeStartPos.z); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
-                        }
-
-                        StartRotation(axis, slice, ang, 6.0f);
-                        gIsSwiping = false;
-                    }
-                } else {
-                    gIsSwiping = false;
-                }
-            } else if (!gIsSwiping) {
-                // Orbit camera
-                gCamAngleX -= dx * 0.008f;
-                gCamAngleY += dy * 0.008f;
-                if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
-                if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
-            }
-
-            gLastMousePos = {(float)e.motion.x, (float)e.motion.y};
+            HandlePointerUp();
+        } else if (e.type == SDL_MOUSEMOTION && gIsPointerDown) {
+            HandlePointerMove((float)e.motion.x, (float)e.motion.y, screenW, screenH);
+        } else if (e.type == SDL_FINGERDOWN) {
+            HandlePointerDown(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
+        } else if (e.type == SDL_FINGERUP) {
+            HandlePointerUp();
+        } else if (e.type == SDL_FINGERMOTION && gIsPointerDown) {
+            HandlePointerMove(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
         }
     }
 }
