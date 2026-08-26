@@ -64,7 +64,22 @@ void GenerateProceduralTextures() {
     // Generate 6 high-res sticker textures with beautiful rounded corners and matte black borders
     for (int i = 0; i < 6; i++) {
         Image img = GenImageColor(256, 256, C_CORE);
-        ImageDrawRectangleRounded(&img, Rectangle{ 16, 16, 224, 224 }, 0.16f, 16, palette[i]);
+        
+        // Draw main colored sticker
+        int margin = 14;
+        int size = 256 - (margin * 2); // 228
+        int radius = 18;
+
+        // Draw cross rectangles
+        ImageDrawRectangle(&img, margin + radius, margin, size - 2 * radius, size, palette[i]);
+        ImageDrawRectangle(&img, margin, margin + radius, size, size - 2 * radius, palette[i]);
+        
+        // Draw 4 rounded corner circles
+        ImageDrawCircle(&img, margin + radius, margin + radius, radius, palette[i]);
+        ImageDrawCircle(&img, margin + size - radius, margin + radius, radius, palette[i]);
+        ImageDrawCircle(&img, margin + radius, margin + size - radius, radius, palette[i]);
+        ImageDrawCircle(&img, margin + size - radius, margin + size - radius, radius, palette[i]);
+
         faceTextures[i] = LoadTextureFromImage(img);
         SetTextureFilter(faceTextures[i], TEXTURE_FILTER_BILINEAR);
         UnloadImage(img);
