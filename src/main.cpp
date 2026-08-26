@@ -20,13 +20,13 @@ const Color C_LEFT  = { 255, 105,   0, 255 }; // 2: Orange (Left)
 const Color C_RIGHT = { 220,  20,  25, 255 }; // 3: Red (Right)
 const Color C_FRONT = {   0, 165,  65, 255 }; // 4: Green (Front)
 const Color C_BACK  = {  10,  90, 225, 255 }; // 5: Blue (Back)
-const Color C_CORE  = {  16,  16,  18, 255 }; // 6: Matte Black (Internal / Border)
+const Color C_CORE  = {  18,  18,  20, 255 }; // 6: Matte Black (Internal / Border)
 
 Texture2D faceTextures[7]; // 0..5 = Colors with rounded borders, 6 = Solid Black
 
 struct Cubie {
     Vector3 logicalPos;
-    Matrix transform;
+    Matrix baseTransform;
     int texIndices[6]; // 0: UP(+Y), 1: DOWN(-Y), 2: LEFT(-X), 3: RIGHT(+X), 4: FRONT(+Z), 5: BACK(-Z)
 };
 
@@ -65,12 +65,11 @@ void GenerateProceduralTextures() {
     for (int i = 0; i < 6; i++) {
         Image img = GenImageColor(256, 256, C_CORE);
         
-        // Draw main colored sticker
         int margin = 14;
         int size = 256 - (margin * 2); // 228
-        int radius = 18;
+        int radius = 20;
 
-        // Draw cross rectangles
+        // Draw cross rectangles for rounded box
         ImageDrawRectangle(&img, margin + radius, margin, size - 2 * radius, size, palette[i]);
         ImageDrawRectangle(&img, margin, margin + radius, size, size - 2 * radius, palette[i]);
         
@@ -82,6 +81,7 @@ void GenerateProceduralTextures() {
 
         faceTextures[i] = LoadTextureFromImage(img);
         SetTextureFilter(faceTextures[i], TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(faceTextures[i], TEXTURE_WRAP_CLAMP);
         UnloadImage(img);
     }
     
@@ -89,6 +89,7 @@ void GenerateProceduralTextures() {
     Image coreImg = GenImageColor(256, 256, C_CORE);
     faceTextures[6] = LoadTextureFromImage(coreImg);
     SetTextureFilter(faceTextures[6], TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(faceTextures[6], TEXTURE_WRAP_CLAMP);
     UnloadImage(coreImg);
 }
 
@@ -99,7 +100,7 @@ void InitCube() {
             for (int z = -1; z <= 1; z++) {
                 Cubie c;
                 c.logicalPos = {(float)x, (float)y, (float)z};
-                c.transform = MatrixTranslate(x, y, z);
+                c.baseTransform = MatrixTranslate(x, y, z);
                 
                 c.texIndices[0] = (y ==  1) ? 0 : 6; // UP (+Y)
                 c.texIndices[1] = (y == -1) ? 1 : 6; // DOWN (-Y)
@@ -114,14 +115,14 @@ void InitCube() {
     }
 }
 
-// Draw a single cubie with 6 perfectly textured, non-overlapping quad faces
-void DrawTexturedCubie(Cubie& c) {
+// Draw a single cubie with 6 textured quad faces
+void DrawTexturedCubie(const Cubie& c, const Matrix& renderTransform) {
     rlPushMatrix();
-    rlMultMatrixf(MatrixToFloat(c.transform));
+    rlMultMatrixf(MatrixToFloat(renderTransform));
 
-    const float s = 0.485f; // Cubie half-size with subtle aesthetic spacing
+    const float s = 0.49f; // Clean half-size, tight 0.02f cubie seam
 
-    // 0: UP (+Y)
+    // 0: UP (+Y) face
     rlSetTexture(faceTextures[c.texIndices[0]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(255, 255, 255, 255);
@@ -131,7 +132,7 @@ void DrawTexturedCubie(Cubie& c) {
     rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s, -s);
     rlEnd();
 
-    // 1: DOWN (-Y)
+    // 1: DOWN (-Y) face
     rlSetTexture(faceTextures[c.texIndices[1]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(240, 240, 240, 255);
@@ -141,7 +142,7 @@ void DrawTexturedCubie(Cubie& c) {
     rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s, -s,  s);
     rlEnd();
 
-    // 2: LEFT (-X)
+    // 2: LEFT (-X) face
     rlSetTexture(faceTextures[c.texIndices[2]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(245, 245, 245, 255);
@@ -151,7 +152,7 @@ void DrawTexturedCubie(Cubie& c) {
     rlTexCoord2f(1.0f, 0.0f); rlVertex3f(-s,  s,  s);
     rlEnd();
 
-    // 3: RIGHT (+X)
+    // 3: RIGHT (+X) face
     rlSetTexture(faceTextures[c.texIndices[3]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(250, 250, 250, 255);
@@ -161,7 +162,7 @@ void DrawTexturedCubie(Cubie& c) {
     rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s, -s);
     rlEnd();
 
-    // 4: FRONT (+Z)
+    // 4: FRONT (+Z) face
     rlSetTexture(faceTextures[c.texIndices[4]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(255, 255, 255, 255);
@@ -171,7 +172,7 @@ void DrawTexturedCubie(Cubie& c) {
     rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s,  s);
     rlEnd();
 
-    // 5: BACK (-Z)
+    // 5: BACK (-Z) face
     rlSetTexture(faceTextures[c.texIndices[5]].id);
     rlBegin(RL_QUADS);
     rlColor4ub(240, 240, 240, 255);
@@ -227,10 +228,9 @@ void UpdateDrawFrame(void) {
     float screenH = (float)GetScreenHeight();
     float aspect = screenW / (screenH > 0 ? screenH : 1.0f);
 
-    // Responsive Camera Framing: Perfectly frame the Rubik's cube on ANY mobile or desktop screen
+    // Responsive Camera Framing: Automatically scale to fit portrait mobile & desktop screens
     float baseRadius = 8.5f;
     if (aspect < 1.0f) {
-        // Mobile portrait mode: pull camera back proportionally to fit the screen width
         camRadius = baseRadius / (aspect * 1.05f);
         camera.fovy = 38.0f;
     } else {
@@ -248,41 +248,35 @@ void UpdateDrawFrame(void) {
         StartRotation(nextMove.axis, nextMove.slice, nextMove.angle, nextMove.speed);
     }
 
+    // Update animation progress
     if (isAnimating) {
-        float step = currentAnimSpeed * dt;
-        if (animProgress + step >= 1.0f) {
-            step = 1.0f - animProgress;
-        }
-        
-        float frameAngle = animTarget * step;
-        Matrix rot = MatrixRotate(animAxis, frameAngle);
-
-        for (auto& c : cubies) {
-            float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
-            if (std::abs(v - animSliceValue) < 0.1f) {
-                // Apply rotation on the left so rotation occurs in world space around origin (0,0,0)
-                c.transform = MatrixMultiply(rot, c.transform);
-            }
-        }
-        
-        animProgress += step;
+        animProgress += currentAnimSpeed * dt;
         
         if (animProgress >= 1.0f) {
+            animProgress = 1.0f;
+            
+            // Finalize rotation in discrete steps on baseTransform & logicalPos
             Matrix finalRot = MatrixRotate(animAxis, animTarget);
+            
             for (auto& c : cubies) {
                 float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
                 if (std::abs(v - animSliceValue) < 0.1f) {
+                    // Update logical coordinate
                     c.logicalPos = Vector3Transform(c.logicalPos, finalRot);
                     c.logicalPos.x = roundf(c.logicalPos.x);
                     c.logicalPos.y = roundf(c.logicalPos.y);
                     c.logicalPos.z = roundf(c.logicalPos.z);
 
-                    // Snap translation and rotation matrix elements to prevent floating-point drift
-                    c.transform.m12 = c.logicalPos.x;
-                    c.transform.m13 = c.logicalPos.y;
-                    c.transform.m14 = c.logicalPos.z;
+                    // Update resting base transform
+                    c.baseTransform = MatrixMultiply(finalRot, c.baseTransform);
+                    
+                    // Snap translation components to integer grid to eliminate float drift
+                    c.baseTransform.m12 = c.logicalPos.x;
+                    c.baseTransform.m13 = c.logicalPos.y;
+                    c.baseTransform.m14 = c.logicalPos.z;
 
-                    float* m = (float*)&c.transform;
+                    // Re-orthonormalize 3x3 rotational submatrix
+                    float* m = (float*)&c.baseTransform;
                     for (int i = 0; i < 16; i++) {
                         if (i != 12 && i != 13 && i != 14 && i != 15) {
                             if (fabsf(m[i]) < 0.05f) m[i] = 0.0f;
@@ -386,10 +380,23 @@ void UpdateDrawFrame(void) {
     BeginMode3D(camera);
     rlEnableDepthTest();
     rlEnableDepthMask();
-    rlEnableBackfaceCulling();
+    // Disable backface culling to ensure no polygons are culled across perspective orientations
+    rlDisableBackfaceCulling();
     
-    for (auto& c : cubies) {
-        DrawTexturedCubie(c);
+    Matrix animRotMatrix = MatrixIdentity();
+    if (isAnimating) {
+        animRotMatrix = MatrixRotate(animAxis, animTarget * animProgress);
+    }
+
+    for (const auto& c : cubies) {
+        Matrix renderMat = c.baseTransform;
+        if (isAnimating) {
+            float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
+            if (std::abs(v - animSliceValue) < 0.1f) {
+                renderMat = MatrixMultiply(animRotMatrix, c.baseTransform);
+            }
+        }
+        DrawTexturedCubie(c, renderMat);
     }
     EndMode3D();
 
