@@ -1,0 +1,53 @@
+name: Build and Deploy Rubik's Cube (Emscripten)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v11
+      with:
+        version: 'latest'
+
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        emcmake cmake ..
+        emmake make
+        # Rename the HTML file for GitHub Pages index
+        cp RubiksCube.html index.html
+
+    - name: Upload Pages Artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
