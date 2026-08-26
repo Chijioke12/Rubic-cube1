@@ -2,5 +2,7 @@
   "name": "Rubik's Cube C++",
   "description": "A standalone C++ Rubik's Cube game logic and renderer, configured for Emscripten builds via GitHub Actions.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
