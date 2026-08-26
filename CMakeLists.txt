@@ -22,6 +22,8 @@ if(EMSCRIPTEN)
     set_target_properties(RubiksCube PROPERTIES SUFFIX ".html")
     target_link_options(RubiksCube PUBLIC "--shell-file" "${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
     target_link_options(RubiksCube PUBLIC "-sUSE_GLFW=3")
+    target_link_options(RubiksCube PUBLIC "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap")
+    target_link_options(RubiksCube PUBLIC "-sEXPORTED_FUNCTIONS=['_main','_scramble_cube']")
 endif()
 
 target_link_libraries(RubiksCube PRIVATE raylib)

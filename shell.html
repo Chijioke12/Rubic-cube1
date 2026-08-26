@@ -17,9 +17,18 @@
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
     <div id="ui-layer">
         <div class="header">3D PUZZLE ENGINE</div>
-        <button class="scramble-btn" onclick="Module.ccall('scramble_cube', 'v', [])">Scramble</button>
+        <button class="scramble-btn" id="scramble-btn" onclick="triggerScramble()">Scramble</button>
     </div>
     <script type='text/javascript'>
+      function triggerScramble() {
+        if (typeof Module._scramble_cube === 'function') {
+          Module._scramble_cube();
+        } else if (typeof Module.ccall === 'function') {
+          Module.ccall('scramble_cube', 'v', []);
+        } else {
+          console.log('Module loading...');
+        }
+      }
       var Module = {
         preRun: [],
         postRun: [],
