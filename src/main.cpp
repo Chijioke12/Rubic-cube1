@@ -13,19 +13,21 @@
 #define EXPORT_FN
 #endif
 
-// Authentic, vibrant Rubik's Cube colors
-const Color C_UP    = { 252, 252, 252, 255 }; // White
-const Color C_DOWN  = { 255, 215,   0, 255 }; // Yellow
-const Color C_LEFT  = { 255, 105,   0, 255 }; // Orange
-const Color C_RIGHT = { 220,  20,  25, 255 }; // Red
-const Color C_FRONT = {   0, 165,  65, 255 }; // Green
-const Color C_BACK  = {  10,  90, 225, 255 }; // Blue
-const Color C_INNER = {  18,  18,  20, 255 }; // Matte Black Cubie Body
+// Rubik's Cube Vibrant Colors
+const Color C_UP    = { 255, 255, 255, 255 }; // 0: White (Top)
+const Color C_DOWN  = { 255, 215,   0, 255 }; // 1: Yellow (Bottom)
+const Color C_LEFT  = { 255, 105,   0, 255 }; // 2: Orange (Left)
+const Color C_RIGHT = { 220,  20,  25, 255 }; // 3: Red (Right)
+const Color C_FRONT = {   0, 165,  65, 255 }; // 4: Green (Front)
+const Color C_BACK  = {  10,  90, 225, 255 }; // 5: Blue (Back)
+const Color C_CORE  = {  16,  16,  18, 255 }; // 6: Matte Black (Internal / Border)
+
+Texture2D faceTextures[7]; // 0..5 = Colors with rounded borders, 6 = Solid Black
 
 struct Cubie {
     Vector3 logicalPos;
     Matrix transform;
-    Color colors[6]; // 0: UP(+Y), 1: DOWN(-Y), 2: LEFT(-X), 3: RIGHT(+X), 4: FRONT(+Z), 5: BACK(-Z)
+    int texIndices[6]; // 0: UP(+Y), 1: DOWN(-Y), 2: LEFT(-X), 3: RIGHT(+X), 4: FRONT(+Z), 5: BACK(-Z)
 };
 
 struct Move {
@@ -56,8 +58,23 @@ bool isSwiping = false;
 Vector3 swipeStartPos = {0};
 int swipeStartFace = -1; // 0=U, 1=D, 2=L, 3=R, 4=F, 5=B
 
-inline bool isStickerColor(const Color& c) {
-    return (c.r != C_INNER.r || c.g != C_INNER.g || c.b != C_INNER.b);
+void GenerateProceduralTextures() {
+    Color palette[6] = { C_UP, C_DOWN, C_LEFT, C_RIGHT, C_FRONT, C_BACK };
+    
+    // Generate 6 high-res sticker textures with beautiful rounded corners and matte black borders
+    for (int i = 0; i < 6; i++) {
+        Image img = GenImageColor(256, 256, C_CORE);
+        ImageDrawRectangleRounded(&img, Rectangle{ 16, 16, 224, 224 }, 0.16f, 16, palette[i]);
+        faceTextures[i] = LoadTextureFromImage(img);
+        SetTextureFilter(faceTextures[i], TEXTURE_FILTER_BILINEAR);
+        UnloadImage(img);
+    }
+    
+    // Generate 1 solid dark texture for internal unexposed cubie faces
+    Image coreImg = GenImageColor(256, 256, C_CORE);
+    faceTextures[6] = LoadTextureFromImage(coreImg);
+    SetTextureFilter(faceTextures[6], TEXTURE_FILTER_BILINEAR);
+    UnloadImage(coreImg);
 }
 
 void InitCube() {
@@ -69,12 +86,12 @@ void InitCube() {
                 c.logicalPos = {(float)x, (float)y, (float)z};
                 c.transform = MatrixTranslate(x, y, z);
                 
-                c.colors[0] = (y ==  1) ? C_UP    : C_INNER;
-                c.colors[1] = (y == -1) ? C_DOWN  : C_INNER;
-                c.colors[2] = (x == -1) ? C_LEFT  : C_INNER;
-                c.colors[3] = (x ==  1) ? C_RIGHT : C_INNER;
-                c.colors[4] = (z ==  1) ? C_FRONT : C_INNER;
-                c.colors[5] = (z == -1) ? C_BACK  : C_INNER;
+                c.texIndices[0] = (y ==  1) ? 0 : 6; // UP (+Y)
+                c.texIndices[1] = (y == -1) ? 1 : 6; // DOWN (-Y)
+                c.texIndices[2] = (x == -1) ? 2 : 6; // LEFT (-X)
+                c.texIndices[3] = (x ==  1) ? 3 : 6; // RIGHT (+X)
+                c.texIndices[4] = (z ==  1) ? 4 : 6; // FRONT (+Z)
+                c.texIndices[5] = (z == -1) ? 5 : 6; // BACK (-Z)
                 
                 cubies.push_back(c);
             }
@@ -82,45 +99,74 @@ void InitCube() {
     }
 }
 
-void DrawCubie(Cubie& c) {
+// Draw a single cubie with 6 perfectly textured, non-overlapping quad faces
+void DrawTexturedCubie(Cubie& c) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloat(c.transform));
 
-    // 1. Solid Matte Black Core Cubie (0.94f width gives a clean 0.06f spacing gap between cubies)
-    const float bodySize = 0.94f;
-    DrawCube(Vector3{0, 0, 0}, bodySize, bodySize, bodySize, C_INNER);
+    const float s = 0.485f; // Cubie half-size with subtle aesthetic spacing
 
-    // 2. Solid Raised Plastic Colored Sticker Tiles
-    const float stSize  = 0.82f;
-    const float stThick = 0.03f;
-    // Outer plane coordinate: 0.47f + 0.015f = 0.485f (safely under 0.50f cell limit to avoid overlap)
-    const float stPos   = (bodySize / 2.0f) + (stThick / 2.0f);
+    // 0: UP (+Y)
+    rlSetTexture(faceTextures[c.texIndices[0]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f(-s,  s, -s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f(-s,  s,  s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f( s,  s,  s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s, -s);
+    rlEnd();
 
-    // UP (+Y)
-    if (isStickerColor(c.colors[0])) {
-        DrawCube(Vector3{0, stPos, 0}, stSize, stThick, stSize, c.colors[0]);
-    }
-    // DOWN (-Y)
-    if (isStickerColor(c.colors[1])) {
-        DrawCube(Vector3{0, -stPos, 0}, stSize, stThick, stSize, c.colors[1]);
-    }
-    // LEFT (-X)
-    if (isStickerColor(c.colors[2])) {
-        DrawCube(Vector3{-stPos, 0, 0}, stThick, stSize, stSize, c.colors[2]);
-    }
-    // RIGHT (+X)
-    if (isStickerColor(c.colors[3])) {
-        DrawCube(Vector3{stPos, 0, 0}, stThick, stSize, stSize, c.colors[3]);
-    }
-    // FRONT (+Z)
-    if (isStickerColor(c.colors[4])) {
-        DrawCube(Vector3{0, 0, stPos}, stSize, stSize, stThick, c.colors[4]);
-    }
-    // BACK (-Z)
-    if (isStickerColor(c.colors[5])) {
-        DrawCube(Vector3{0, 0, -stPos}, stSize, stSize, stThick, c.colors[5]);
-    }
+    // 1: DOWN (-Y)
+    rlSetTexture(faceTextures[c.texIndices[1]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(240, 240, 240, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f(-s, -s,  s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f(-s, -s, -s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f( s, -s, -s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s, -s,  s);
+    rlEnd();
 
+    // 2: LEFT (-X)
+    rlSetTexture(faceTextures[c.texIndices[2]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(245, 245, 245, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f(-s,  s, -s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f(-s, -s, -s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f(-s, -s,  s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f(-s,  s,  s);
+    rlEnd();
+
+    // 3: RIGHT (+X)
+    rlSetTexture(faceTextures[c.texIndices[3]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(250, 250, 250, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f( s,  s,  s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f( s, -s,  s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f( s, -s, -s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s, -s);
+    rlEnd();
+
+    // 4: FRONT (+Z)
+    rlSetTexture(faceTextures[c.texIndices[4]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f(-s,  s,  s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f(-s, -s,  s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f( s, -s,  s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f( s,  s,  s);
+    rlEnd();
+
+    // 5: BACK (-Z)
+    rlSetTexture(faceTextures[c.texIndices[5]].id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(240, 240, 240, 255);
+    rlTexCoord2f(0.0f, 0.0f); rlVertex3f( s,  s, -s);
+    rlTexCoord2f(0.0f, 1.0f); rlVertex3f( s, -s, -s);
+    rlTexCoord2f(1.0f, 1.0f); rlVertex3f(-s, -s, -s);
+    rlTexCoord2f(1.0f, 0.0f); rlVertex3f(-s,  s, -s);
+    rlEnd();
+
+    rlSetTexture(0);
     rlPopMatrix();
 }
 
@@ -142,7 +188,7 @@ void ScrambleCube() {
         m.axis = rand() % 3;
         m.slice = (rand() % 3) - 1; // -1, 0, or 1
         m.angle = ((rand() % 2 == 0) ? 90.0f : -90.0f) * DEG2RAD;
-        m.speed = 18.0f; // Fast, fluid scramble sequence
+        m.speed = 18.0f; // Rapid, fluid scramble sequence
         moveQueue.push_back(m);
     }
 }
@@ -161,6 +207,21 @@ void UpdateDrawFrame(void) {
         SetWindowSize(w, h);
     }
 #endif
+
+    float screenW = (float)GetScreenWidth();
+    float screenH = (float)GetScreenHeight();
+    float aspect = screenW / (screenH > 0 ? screenH : 1.0f);
+
+    // Responsive Camera Framing: Perfectly frame the Rubik's cube on ANY mobile or desktop screen
+    float baseRadius = 8.5f;
+    if (aspect < 1.0f) {
+        // Mobile portrait mode: pull camera back proportionally to fit the screen width
+        camRadius = baseRadius / (aspect * 1.05f);
+        camera.fovy = 38.0f;
+    } else {
+        camRadius = baseRadius;
+        camera.fovy = 35.0f;
+    }
 
     float dt = GetFrameTime();
     if (dt > 0.05f) dt = 0.05f;
@@ -293,13 +354,12 @@ void UpdateDrawFrame(void) {
     ClearBackground(Color{12, 12, 14, 255});
     
     BeginMode3D(camera);
-    // Explicitly enforce OpenGL depth test, depth write mask, and backface culling
     rlEnableDepthTest();
     rlEnableDepthMask();
     rlEnableBackfaceCulling();
     
     for (auto& c : cubies) {
-        DrawCubie(c);
+        DrawTexturedCubie(c);
     }
     EndMode3D();
 
@@ -322,6 +382,7 @@ int main() {
     camera.fovy = 35.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
+    GenerateProceduralTextures();
     InitCube();
 
 #if defined(__EMSCRIPTEN__)
