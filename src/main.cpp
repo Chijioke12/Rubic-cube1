@@ -13,14 +13,14 @@
 #define EXPORT_FN
 #endif
 
-// High-visibility, vibrant Rubik's colors
-const Color C_UP    = { 245, 245, 245, 255 }; // White
-const Color C_DOWN  = { 255, 215, 0, 255 };   // Canary Yellow
-const Color C_LEFT  = { 255, 100, 0, 255 };   // Orange
-const Color C_RIGHT = { 210, 15, 15, 255 };   // Red
-const Color C_FRONT = { 0, 160, 50, 255 };    // Green
-const Color C_BACK  = { 0, 80, 200, 255 };    // Royal Blue
-const Color C_INNER = { 20, 20, 20, 255 };    // Core Black
+// Authentic, vibrant Rubik's Cube colors
+const Color C_UP    = { 250, 250, 250, 255 }; // White
+const Color C_DOWN  = { 255, 215,   0, 255 }; // Yellow
+const Color C_LEFT  = { 255, 110,   0, 255 }; // Orange
+const Color C_RIGHT = { 220,  20,  25, 255 }; // Red
+const Color C_FRONT = {   0, 165,  65, 255 }; // Green
+const Color C_BACK  = {  10,  90, 225, 255 }; // Blue
+const Color C_INNER = {  22,  22,  24, 255 }; // Matte Black Cubie Body
 
 struct Cubie {
     Vector3 logicalPos;
@@ -40,8 +40,8 @@ std::deque<Move> moveQueue;
 
 Camera camera = { 0 };
 float camAngleX = 45.0f * DEG2RAD;
-float camAngleY = 32.0f * DEG2RAD;
-float camRadius = 10.5f;
+float camAngleY = 30.0f * DEG2RAD;
+float camRadius = 8.5f;
 
 bool isAnimating = false;
 float animProgress = 0.0f;
@@ -55,6 +55,10 @@ Vector2 lastMousePos = {0};
 bool isSwiping = false;
 Vector3 swipeStartPos = {0};
 int swipeStartFace = -1; // 0=U, 1=D, 2=L, 3=R, 4=F, 5=B
+
+inline bool isStickerColor(const Color& c) {
+    return (c.r != C_INNER.r || c.g != C_INNER.g || c.b != C_INNER.b);
+}
 
 void InitCube() {
     cubies.clear();
@@ -78,108 +82,44 @@ void InitCube() {
     }
 }
 
-// Draw a single coplanar face without Z-buffer overlap or tearing
-void DrawFacePlane(int faceIdx, Color col, float shade) {
-    const float s  = 0.485f; // Cubie half-size
-    const float st = 0.400f; // Sticker half-size
-
-    Color cSticker = {
-        (unsigned char)(col.r * shade),
-        (unsigned char)(col.g * shade),
-        (unsigned char)(col.b * shade),
-        255
-    };
-    Color cBorder = {
-        (unsigned char)(20 * shade),
-        (unsigned char)(20 * shade),
-        (unsigned char)(20 * shade),
-        255
-    };
-
-    bool isOuterSticker = (col.r != C_INNER.r || col.g != C_INNER.g || col.b != C_INNER.b);
-
-    if (!isOuterSticker) {
-        // Internal dark face - single quad
-        rlColor4ub(cBorder.r, cBorder.g, cBorder.b, 255);
-        if (faceIdx == 4) { // FRONT (+Z)
-            rlVertex3f(-s, -s,  s); rlVertex3f( s, -s,  s); rlVertex3f( s,  s,  s); rlVertex3f(-s,  s,  s);
-        } else if (faceIdx == 5) { // BACK (-Z)
-            rlVertex3f( s, -s, -s); rlVertex3f(-s, -s, -s); rlVertex3f(-s,  s, -s); rlVertex3f( s,  s, -s);
-        } else if (faceIdx == 0) { // UP (+Y)
-            rlVertex3f(-s,  s,  s); rlVertex3f( s,  s,  s); rlVertex3f( s,  s, -s); rlVertex3f(-s,  s, -s);
-        } else if (faceIdx == 1) { // DOWN (-Y)
-            rlVertex3f(-s, -s, -s); rlVertex3f( s, -s, -s); rlVertex3f( s, -s,  s); rlVertex3f(-s, -s,  s);
-        } else if (faceIdx == 3) { // RIGHT (+X)
-            rlVertex3f( s, -s,  s); rlVertex3f( s, -s, -s); rlVertex3f( s,  s, -s); rlVertex3f( s,  s,  s);
-        } else if (faceIdx == 2) { // LEFT (-X)
-            rlVertex3f(-s, -s, -s); rlVertex3f(-s, -s,  s); rlVertex3f(-s,  s,  s); rlVertex3f(-s,  s, -s);
-        }
-        return;
-    }
-
-    // 1. Center Sticker Quad (Coplanar)
-    rlColor4ub(cSticker.r, cSticker.g, cSticker.b, 255);
-    if (faceIdx == 4) { // FRONT (+Z)
-        rlVertex3f(-st, -st,  s); rlVertex3f( st, -st,  s); rlVertex3f( st,  st,  s); rlVertex3f(-st,  st,  s);
-    } else if (faceIdx == 5) { // BACK (-Z)
-        rlVertex3f( st, -st, -s); rlVertex3f(-st, -st, -s); rlVertex3f(-st,  st, -s); rlVertex3f( st,  st, -s);
-    } else if (faceIdx == 0) { // UP (+Y)
-        rlVertex3f(-st,  s,  st); rlVertex3f( st,  s,  st); rlVertex3f( st,  s, -st); rlVertex3f(-st,  s, -st);
-    } else if (faceIdx == 1) { // DOWN (-Y)
-        rlVertex3f(-st, -s, -st); rlVertex3f( st, -s, -st); rlVertex3f( st, -s,  st); rlVertex3f(-st, -s,  st);
-    } else if (faceIdx == 3) { // RIGHT (+X)
-        rlVertex3f( s, -st,  st); rlVertex3f( s, -st, -st); rlVertex3f( s,  st, -st); rlVertex3f( s,  st,  st);
-    } else if (faceIdx == 2) { // LEFT (-X)
-        rlVertex3f(-s, -st, -st); rlVertex3f(-s, -st,  st); rlVertex3f(-s,  st,  st); rlVertex3f(-s,  st, -st);
-    }
-
-    // 2. Borders (4 distinct non-overlapping quads on the same plane)
-    rlColor4ub(cBorder.r, cBorder.g, cBorder.b, 255);
-    if (faceIdx == 4) { // FRONT (+Z)
-        rlVertex3f(-s,  st,  s); rlVertex3f( s,  st,  s); rlVertex3f( s,  s,  s); rlVertex3f(-s,  s,  s);
-        rlVertex3f(-s, -s,  s); rlVertex3f( s, -s,  s); rlVertex3f( s, -st,  s); rlVertex3f(-s, -st,  s);
-        rlVertex3f(-s, -st,  s); rlVertex3f(-st, -st,  s); rlVertex3f(-st,  st,  s); rlVertex3f(-s,  st,  s);
-        rlVertex3f( st, -st,  s); rlVertex3f( s, -st,  s); rlVertex3f( s,  st,  s); rlVertex3f( st,  st,  s);
-    } else if (faceIdx == 5) { // BACK (-Z)
-        rlVertex3f( s,  st, -s); rlVertex3f(-s,  st, -s); rlVertex3f(-s,  s, -s); rlVertex3f( s,  s, -s);
-        rlVertex3f( s, -s, -s); rlVertex3f(-s, -s, -s); rlVertex3f(-s, -st, -s); rlVertex3f( s, -st, -s);
-        rlVertex3f( s, -st, -s); rlVertex3f( st, -st, -s); rlVertex3f( st,  st, -s); rlVertex3f( s,  st, -s);
-        rlVertex3f(-st, -st, -s); rlVertex3f(-s, -st, -s); rlVertex3f(-s,  st, -s); rlVertex3f(-st,  st, -s);
-    } else if (faceIdx == 0) { // UP (+Y)
-        rlVertex3f(-s,  s,  s); rlVertex3f( s,  s,  s); rlVertex3f( s,  s,  st); rlVertex3f(-s,  s,  st);
-        rlVertex3f(-s,  s, -st); rlVertex3f( s,  s, -st); rlVertex3f( s,  s, -s); rlVertex3f(-s,  s, -s);
-        rlVertex3f(-s,  s,  st); rlVertex3f(-st,  s,  st); rlVertex3f(-st,  s, -st); rlVertex3f(-s,  s, -st);
-        rlVertex3f( st,  s,  st); rlVertex3f( s,  s,  st); rlVertex3f( s,  s, -st); rlVertex3f( st,  s, -st);
-    } else if (faceIdx == 1) { // DOWN (-Y)
-        rlVertex3f(-s, -s, -s); rlVertex3f( s, -s, -s); rlVertex3f( s, -s, -st); rlVertex3f(-s, -s, -st);
-        rlVertex3f(-s, -s,  st); rlVertex3f( s, -s,  st); rlVertex3f( s, -s,  s); rlVertex3f(-s, -s,  s);
-        rlVertex3f(-s, -s, -st); rlVertex3f(-st, -s, -st); rlVertex3f(-st, -s,  st); rlVertex3f(-s, -s,  st);
-        rlVertex3f( st, -s, -st); rlVertex3f( s, -s, -st); rlVertex3f( s, -s,  st); rlVertex3f( st, -s,  st);
-    } else if (faceIdx == 3) { // RIGHT (+X)
-        rlVertex3f( s,  st,  s); rlVertex3f( s,  st, -s); rlVertex3f( s,  s, -s); rlVertex3f( s,  s,  s);
-        rlVertex3f( s, -s,  s); rlVertex3f( s, -s, -s); rlVertex3f( s, -st, -s); rlVertex3f( s, -st,  s);
-        rlVertex3f( s, -st,  s); rlVertex3f( s, -st,  st); rlVertex3f( s,  st,  st); rlVertex3f( s,  st,  s);
-        rlVertex3f( s, -st, -st); rlVertex3f( s, -st, -s); rlVertex3f( s,  st, -s); rlVertex3f( s,  st, -st);
-    } else if (faceIdx == 2) { // LEFT (-X)
-        rlVertex3f(-s,  st, -s); rlVertex3f(-s,  st,  s); rlVertex3f(-s,  s,  s); rlVertex3f(-s,  s, -s);
-        rlVertex3f(-s, -s, -s); rlVertex3f(-s, -s,  s); rlVertex3f(-s, -st,  s); rlVertex3f(-s, -st, -s);
-        rlVertex3f(-s, -st, -s); rlVertex3f(-s, -st, -st); rlVertex3f(-s,  st, -st); rlVertex3f(-s,  st, -s);
-        rlVertex3f(-s, -st,  st); rlVertex3f(-s, -st,  s); rlVertex3f(-s,  st,  s); rlVertex3f(-s,  st,  st);
-    }
-}
-
 void DrawCubie(Cubie& c) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloat(c.transform));
 
-    rlBegin(RL_QUADS);
-    DrawFacePlane(0, c.colors[0], 1.00f); // UP
-    DrawFacePlane(1, c.colors[1], 0.72f); // DOWN
-    DrawFacePlane(2, c.colors[2], 0.82f); // LEFT
-    DrawFacePlane(3, c.colors[3], 0.90f); // RIGHT
-    DrawFacePlane(4, c.colors[4], 0.96f); // FRONT
-    DrawFacePlane(5, c.colors[5], 0.76f); // BACK
-    rlEnd();
+    // 1. Black cubie body with clear gaps between adjacent pieces to prevent any collision
+    const float bodySize = 0.92f;
+    DrawCube(Vector3{0, 0, 0}, bodySize, bodySize, bodySize, C_INNER);
+    DrawCubeWires(Vector3{0, 0, 0}, bodySize + 0.001f, bodySize + 0.001f, bodySize + 0.001f, Color{10, 10, 12, 255});
+
+    // 2. Crisp, non-penetrating colored plastic sticker tiles
+    const float stSize  = 0.78f;
+    const float stThick = 0.02f;
+    const float stPos   = (bodySize / 2.0f) + (stThick / 2.0f); // 0.46f + 0.01f = 0.47f (< 0.50f bounds)
+
+    // UP (+Y)
+    if (isStickerColor(c.colors[0])) {
+        DrawCube(Vector3{0, stPos, 0}, stSize, stThick, stSize, c.colors[0]);
+    }
+    // DOWN (-Y)
+    if (isStickerColor(c.colors[1])) {
+        DrawCube(Vector3{0, -stPos, 0}, stSize, stThick, stSize, c.colors[1]);
+    }
+    // LEFT (-X)
+    if (isStickerColor(c.colors[2])) {
+        DrawCube(Vector3{-stPos, 0, 0}, stThick, stSize, stSize, c.colors[2]);
+    }
+    // RIGHT (+X)
+    if (isStickerColor(c.colors[3])) {
+        DrawCube(Vector3{stPos, 0, 0}, stThick, stSize, stSize, c.colors[3]);
+    }
+    // FRONT (+Z)
+    if (isStickerColor(c.colors[4])) {
+        DrawCube(Vector3{0, 0, stPos}, stSize, stSize, stThick, c.colors[4]);
+    }
+    // BACK (-Z)
+    if (isStickerColor(c.colors[5])) {
+        DrawCube(Vector3{0, 0, -stPos}, stSize, stSize, stThick, c.colors[5]);
+    }
 
     rlPopMatrix();
 }
@@ -197,12 +137,12 @@ void StartRotation(int axis, int slice, float angle, float speed = 6.0f) {
 
 void ScrambleCube() {
     moveQueue.clear();
-    for (int i = 0; i < 18; i++) {
+    for (int i = 0; i < 20; i++) {
         Move m;
         m.axis = rand() % 3;
         m.slice = (rand() % 3) - 1; // -1, 0, or 1
         m.angle = ((rand() % 2 == 0) ? 90.0f : -90.0f) * DEG2RAD;
-        m.speed = 18.0f; // Fast, energetic scramble animation
+        m.speed = 18.0f; // Fast, fluid scramble sequence
         moveQueue.push_back(m);
     }
 }
@@ -225,7 +165,7 @@ void UpdateDrawFrame(void) {
     float dt = GetFrameTime();
     if (dt > 0.05f) dt = 0.05f;
 
-    // Process queued scramble moves
+    // Process queued scramble animations sequentially
     if (!isAnimating && !moveQueue.empty()) {
         Move nextMove = moveQueue.front();
         moveQueue.pop_front();
@@ -279,12 +219,12 @@ void UpdateDrawFrame(void) {
                 if (col.hit) {
                     isSwiping = true;
                     swipeStartPos = col.point;
-                    if (fabs(col.point.y - 1.5f) < 0.05f) swipeStartFace = 0; // U
-                    else if (fabs(col.point.y - (-1.5f)) < 0.05f) swipeStartFace = 1; // D
-                    else if (fabs(col.point.x - (-1.5f)) < 0.05f) swipeStartFace = 2; // L
-                    else if (fabs(col.point.x - 1.5f) < 0.05f) swipeStartFace = 3; // R
-                    else if (fabs(col.point.z - 1.5f) < 0.05f) swipeStartFace = 4; // F
-                    else if (fabs(col.point.z - (-1.5f)) < 0.05f) swipeStartFace = 5; // B
+                    if (fabs(col.point.y - 1.5f) < 0.1f) swipeStartFace = 0; // U
+                    else if (fabs(col.point.y - (-1.5f)) < 0.1f) swipeStartFace = 1; // D
+                    else if (fabs(col.point.x - (-1.5f)) < 0.1f) swipeStartFace = 2; // L
+                    else if (fabs(col.point.x - 1.5f) < 0.1f) swipeStartFace = 3; // R
+                    else if (fabs(col.point.z - 1.5f) < 0.1f) swipeStartFace = 4; // F
+                    else if (fabs(col.point.z - (-1.5f)) < 0.1f) swipeStartFace = 5; // B
                 } else {
                     isSwiping = false;
                 }
@@ -298,7 +238,7 @@ void UpdateDrawFrame(void) {
                     float dy = col.point.y - swipeStartPos.y;
                     float dz = col.point.z - swipeStartPos.z;
 
-                    float thresh = 0.32f;
+                    float thresh = 0.28f;
                     if (fabs(dx) > thresh || fabs(dy) > thresh || fabs(dz) > thresh) {
                         int axis = 0; int slice = 0; float ang = PI/2;
                         
@@ -310,13 +250,13 @@ void UpdateDrawFrame(void) {
                             else { axis = 0; slice = round(swipeStartPos.x); ang = (dy>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 0) { // Up
                             if (fabs(dx) > fabs(dz)) { axis = 2; slice = round(swipeStartPos.z); ang = (dx>0)?PI/2:-PI/2; }
-                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?PI/2:-PI/2; }
+                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 1) { // Down
                             if (fabs(dx) > fabs(dz)) { axis = 2; slice = round(swipeStartPos.z); ang = (dx>0)?-PI/2:PI/2; }
-                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?-PI/2:PI/2; }
+                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?PI/2:-PI/2; }
                         } else if (swipeStartFace == 3) { // Right
                             if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?PI/2:-PI/2; }
-                            else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?PI/2:-PI/2; }
+                            else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 2) { // Left
                             if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?-PI/2:PI/2; }
                             else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?PI/2:-PI/2; }
@@ -331,8 +271,8 @@ void UpdateDrawFrame(void) {
             } else if (!touchPressed) { 
                 camAngleX -= delta.x * 0.008f;
                 camAngleY += delta.y * 0.008f;
-                if (camAngleY > 85.0f * DEG2RAD) camAngleY = 85.0f * DEG2RAD;
-                if (camAngleY < -85.0f * DEG2RAD) camAngleY = -85.0f * DEG2RAD;
+                if (camAngleY > 80.0f * DEG2RAD) camAngleY = 80.0f * DEG2RAD;
+                if (camAngleY < -80.0f * DEG2RAD) camAngleY = -80.0f * DEG2RAD;
             }
             lastMousePos = mousePos;
         } else {
@@ -350,7 +290,7 @@ void UpdateDrawFrame(void) {
     camera.position.y = camRadius * sinf(camAngleY);
 
     BeginDrawing();
-    ClearBackground(Color{12, 12, 14, 255});
+    ClearBackground(Color{14, 14, 16, 255});
     BeginMode3D(camera);
     for (auto& c : cubies) {
         DrawCubie(c);
@@ -372,7 +312,7 @@ int main() {
     camera.position = Vector3{ 6.0f, 5.0f, 6.0f };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };
     camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 38.0f;
+    camera.fovy = 34.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
     InitCube();
