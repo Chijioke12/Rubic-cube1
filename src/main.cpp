@@ -12,6 +12,12 @@
 #include <vector>
 #include <iostream>
 
+Cube cube;
+SDL_Window* window = nullptr;
+bool running = true;
+float rotX = -0.5f, rotY = 0.5f;
+GLuint program, vbo;
+
 extern "C" {
     EMSCRIPTEN_KEEPALIVE
     void rotate_cube_face(int face, int clockwise) {
@@ -40,12 +46,6 @@ const char* fShaderSource =
     "void main() {"
     "   gl_FragColor = vColor;"
     "}";
-
-Cube cube;
-SDL_Window* window = nullptr;
-bool running = true;
-float rotX = -0.5f, rotY = 0.5f;
-GLuint program, vbo;
 
 GLuint compileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
