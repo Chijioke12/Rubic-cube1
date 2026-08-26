@@ -9,6 +9,7 @@ add_executable(RubiksCube src/main.cpp src/cube.cpp)
 
 if(EMSCRIPTEN)
     set_target_properties(RubiksCube PROPERTIES SUFFIX ".html")
+    target_compile_options(RubiksCube PUBLIC "-s USE_SDL=2")
     target_link_libraries(RubiksCube "-s USE_SDL=2")
 else()
     find_package(SDL2 REQUIRED)

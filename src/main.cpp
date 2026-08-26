@@ -1,10 +1,11 @@
+#ifdef __EMSCRIPTEN__
+#include <SDL.h>
+#include <emscripten.h>
+#else
 #include <SDL2/SDL.h>
+#endif
 #include "cube.h"
 #include <map>
-
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#endif
 
 const int TILE_SIZE = 40;
 const int PADDING = 5;
