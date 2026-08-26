@@ -49,6 +49,7 @@ void initGL() {
     glUseProgram(program);
     glGenBuffers(1, &vbo);
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
 }
 
 void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, Color c, float brightness) {
@@ -62,13 +63,14 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
         case GREEN: sc = {0, 255, 0, 255}; break;
     }
     float r = (sc.r/255.0f) * brightness, g = (sc.g/255.0f) * brightness, b = (sc.b/255.0f) * brightness;
+    // CCW order for front-face culling: p1, p4, p3 and p1, p3, p2
     float quad[] = {
         p1.x, p1.y, p1.z, r, g, b, 1.0f,
-        p2.x, p2.y, p2.z, r, g, b, 1.0f,
+        p4.x, p4.y, p4.z, r, g, b, 1.0f,
         p3.x, p3.y, p3.z, r, g, b, 1.0f,
         p1.x, p1.y, p1.z, r, g, b, 1.0f,
         p3.x, p3.y, p3.z, r, g, b, 1.0f,
-        p4.x, p4.y, p4.z, r, g, b, 1.0f
+        p2.x, p2.y, p2.z, r, g, b, 1.0f
     };
     vertices.insert(vertices.end(), quad, quad + 42);
 }
@@ -132,10 +134,19 @@ void handleInput() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) running = false;
+        
+        // Mouse Rotation
         if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
             rotY += event.motion.xrel * 0.01f;
             rotX += event.motion.yrel * 0.01f;
         }
+
+        // Touch Rotation
+        if (event.type == SDL_FINGERMOTION) {
+            rotY += event.tfinger.dx * 5.0f;
+            rotX += event.tfinger.dy * 5.0f;
+        }
+
         if (event.type == SDL_KEYDOWN) {
             bool clockwise = !(SDL_GetModState() & KMOD_SHIFT);
             switch (event.key.keysym.sym) {

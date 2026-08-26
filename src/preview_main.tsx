@@ -36,7 +36,7 @@ function PreviewApp() {
               </div>
               <div className="flex justify-between border-b border-neutral-800 pb-1">
                 <span className="text-neutral-400">View Angle</span>
-                <span className="font-mono text-blue-400 font-bold text-xs bg-blue-500/10 px-1.5 rounded">Mouse Drag</span>
+                <span className="font-mono text-blue-400 font-bold text-xs bg-blue-500/10 px-1.5 rounded text-right">Drag / Touch</span>
               </div>
             </div>
           </div>
