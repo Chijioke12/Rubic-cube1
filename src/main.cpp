@@ -171,53 +171,85 @@ void render() {
     glVertexAttribPointer(colLoc, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
 
     glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 7);
-
-    // --- RENDER NATIVE UI BUTTONS FOR MOBILE ---
-    std::vector<float> uiVertices;
-    glDisable(GL_DEPTH_TEST);
-    Matrix4 identity = Matrix4::identity();
-    glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, identity.m);
-
-    Color buttonColors[6] = {
-        YELLOW, // UP Yellow
-        WHITE,  // DOWN White
-        BLUE,   // LEFT Blue
-        GREEN,  // RIGHT Green
-        RED,    // FRONT Red
-        ORANGE  // BACK Orange
-    };
-    
-    for(int i=0; i<6; i++) {
-        float bw = 2.0f / 6.0f;
-        float bx = -1.0f + (i * bw);
-        float by = -0.7f;
-        float bh = 0.3f;
-        float p = 0.02f;
-
-        float x0 = bx + p;
-        float x1 = bx + bw - p;
-        float y0 = by - p;
-        float y1 = by - bh + p;
-
-        drawQuad(uiVertices, {x0, y0, 0}, {x1, y0, 0}, {x1, y1, 0}, {x0, y1, 0}, buttonColors[i], 1.0f);
-    }
-    
-    glBufferData(GL_ARRAY_BUFFER, uiVertices.size() * sizeof(float), uiVertices.data(), GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, uiVertices.size() / 7);
-    glEnable(GL_DEPTH_TEST);
 }
 
-bool swipeClockwise = true;
+struct Hit {
+    bool hit;
+    Face face;
+    Vec3 point;
+    float t;
+};
+
+Matrix4 getModelMatrix() {
+    return Matrix4::rotateX(rotX) * Matrix4::rotateY(rotY);
+}
+
+Hit raycast(float touchX, float touchY, float screenW, float screenH) {
+    float aspect = screenW / screenH;
+    float ndcX = touchX * 2.0f - 1.0f;
+    float ndcY = 1.0f - touchY * 2.0f;
+    float fov = 0.78f;
+    float tanHalfFov = tan(fov / 2.0f);
+    Vec3 rayDirView = { ndcX * aspect * tanHalfFov, ndcY * tanHalfFov, -1.0f };
+    float len = sqrt(rayDirView.x*rayDirView.x + rayDirView.y*rayDirView.y + rayDirView.z*rayDirView.z);
+    rayDirView.x /= len; rayDirView.y /= len; rayDirView.z /= len;
+
+    Matrix4 model = getModelMatrix();
+    Matrix4 invRot = {0};
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) invRot.m[i*4+j] = model.m[j*4+i];
+
+    Vec3 rayOrigLocal = {0, 0, 8.0f};
+    Vec3 ro = {
+        rayOrigLocal.x * invRot.m[0] + rayOrigLocal.y * invRot.m[4] + rayOrigLocal.z * invRot.m[8],
+        rayOrigLocal.x * invRot.m[1] + rayOrigLocal.y * invRot.m[5] + rayOrigLocal.z * invRot.m[9],
+        rayOrigLocal.x * invRot.m[2] + rayOrigLocal.y * invRot.m[6] + rayOrigLocal.z * invRot.m[10]
+    };
+
+    Vec3 rd = {
+        rayDirView.x * invRot.m[0] + rayDirView.y * invRot.m[4] + rayDirView.z * invRot.m[8],
+        rayDirView.x * invRot.m[1] + rayDirView.y * invRot.m[5] + rayDirView.z * invRot.m[9],
+        rayDirView.x * invRot.m[2] + rayDirView.y * invRot.m[6] + rayDirView.z * invRot.m[10]
+    };
+
+    Hit bestHit = {false, UP, {0,0,0}, 9999.0f};
+
+    auto checkFace = [&](Face f, float nx, float ny, float nz, float dist) {
+        float denom = rd.x * nx + rd.y * ny + rd.z * nz;
+        if (fabs(denom) < 0.0001f) return;
+        float t = ((nx*dist - ro.x)*nx + (ny*dist - ro.y)*ny + (nz*dist - ro.z)*nz) / denom;
+        if (t > 0 && t < bestHit.t) {
+            Vec3 p = {ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t};
+            bool inBounds = true;
+            if (nx == 0 && (p.x < -1.5f || p.x > 1.5f)) inBounds = false;
+            if (ny == 0 && (p.y < -1.5f || p.y > 1.5f)) inBounds = false;
+            if (nz == 0 && (p.z < -1.5f || p.z > 1.5f)) inBounds = false;
+            if (inBounds) {
+                bestHit = {true, f, p, t};
+            }
+        }
+    };
+
+    checkFace(RIGHT, 1, 0, 0, 1.5f);
+    checkFace(LEFT, -1, 0, 0, 1.5f);
+    checkFace(UP, 0, 1, 0, 1.5f);
+    checkFace(DOWN, 0, -1, 0, 1.5f);
+    checkFace(FRONT, 0, 0, 1, 1.5f);
+    checkFace(BACK, 0, 0, -1, 1.5f);
+
+    return bestHit;
+}
+
 float touchStartX = 0.0f;
 float touchStartY = 0.0f;
 bool isSwiping = false;
+bool isCubeHit = false;
+Hit initialHit;
 
 void handleInput() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) running = false;
         
-        // Mouse Rotation
         if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
             rotY += event.motion.xrel * 0.01f;
             rotX += event.motion.yrel * 0.01f;
@@ -227,33 +259,82 @@ void handleInput() {
             touchStartX = event.tfinger.x;
             touchStartY = event.tfinger.y;
             isSwiping = false;
+            
+            int w, h;
+            SDL_GetWindowSize(window, &w, &h);
+            initialHit = raycast(touchStartX, touchStartY, (float)w, (float)h);
+            isCubeHit = initialHit.hit;
         }
         
         if (event.type == SDL_FINGERMOTION) {
             isSwiping = true;
-            rotY += event.tfinger.dx * 5.0f;
-            rotX += event.tfinger.dy * 5.0f;
+            if (!isCubeHit) {
+                rotY += event.tfinger.dx * 5.0f;
+                rotX += event.tfinger.dy * 5.0f;
+            }
         }
 
         if (event.type == SDL_FINGERUP) {
-            float y = event.tfinger.y;
-            float x = event.tfinger.x;
-            
-            // Check if tapped in the bottom UI area (y > 0.85 approx maps to -0.7 in NDC)
-            if (!isSwiping && y > 0.8f) {
-                int btnIndex = (int)(x * 6.0f);
-                if (btnIndex >= 0 && btnIndex < 6) {
-                    Face f[] = {UP, DOWN, LEFT, RIGHT, FRONT, BACK};
-                    cube.rotateFace(f[btnIndex], swipeClockwise);
-                }
-            } else if (!isSwiping && y < 0.2f) {
-                // Top area tap toggles direction or scrambles
-                if (x < 0.5f) {
-                    swipeClockwise = !swipeClockwise;
-                } else {
-                    cube.scramble();
+            if (isCubeHit && isSwiping) {
+                float dx = event.tfinger.x - touchStartX;
+                float dy = event.tfinger.y - touchStartY;
+                if (sqrt(dx*dx + dy*dy) > 0.05f) {
+                    bool cw = false;
+                    Face rotF = UP;
+                    
+                    if (initialHit.face == FRONT) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.y > 0) ? UP : DOWN;
+                            cw = (initialHit.point.y > 0) ? (dx < 0) : (dx > 0);
+                        } else {
+                            rotF = (initialHit.point.x > 0) ? RIGHT : LEFT;
+                            cw = (initialHit.point.x > 0) ? (dy > 0) : (dy < 0);
+                        }
+                    } else if (initialHit.face == UP) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.z > 0) ? FRONT : BACK;
+                            cw = (initialHit.point.z > 0) ? (dx < 0) : (dx > 0);
+                        } else {
+                            rotF = (initialHit.point.x > 0) ? RIGHT : LEFT;
+                            cw = (initialHit.point.x > 0) ? (dy < 0) : (dy > 0);
+                        }
+                    } else if (initialHit.face == RIGHT) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.y > 0) ? UP : DOWN;
+                            cw = (initialHit.point.y > 0) ? (dx > 0) : (dx < 0);
+                        } else {
+                            rotF = (initialHit.point.z > 0) ? FRONT : BACK;
+                            cw = (initialHit.point.z > 0) ? (dy > 0) : (dy < 0);
+                        }
+                    } else if (initialHit.face == LEFT) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.y > 0) ? UP : DOWN;
+                            cw = (initialHit.point.y > 0) ? (dx < 0) : (dx > 0);
+                        } else {
+                            rotF = (initialHit.point.z > 0) ? FRONT : BACK;
+                            cw = (initialHit.point.z > 0) ? (dy < 0) : (dy > 0);
+                        }
+                    } else if (initialHit.face == DOWN) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.z > 0) ? FRONT : BACK;
+                            cw = (initialHit.point.z > 0) ? (dx > 0) : (dx < 0);
+                        } else {
+                            rotF = (initialHit.point.x > 0) ? RIGHT : LEFT;
+                            cw = (initialHit.point.x > 0) ? (dy < 0) : (dy > 0);
+                        }
+                    } else if (initialHit.face == BACK) {
+                        if (fabs(dx) > fabs(dy)) {
+                            rotF = (initialHit.point.y > 0) ? UP : DOWN;
+                            cw = (initialHit.point.y > 0) ? (dx > 0) : (dx < 0);
+                        } else {
+                            rotF = (initialHit.point.x > 0) ? RIGHT : LEFT;
+                            cw = (initialHit.point.x > 0) ? (dy > 0) : (dy < 0);
+                        }
+                    }
+                    cube.rotateFace(rotF, cw);
                 }
             }
+            isCubeHit = false;
         }
 
         if (event.type == SDL_KEYDOWN) {
@@ -278,17 +359,14 @@ void mainLoop() {
 }
 
 #ifdef __EMSCRIPTEN__
-#include <emscripten/em_js.h>
-EM_JS(void, setup_js_listener, (), {
-    window.addEventListener("message", (event) => {
-        if (event.data && event.data.type === "ROTATE_FACE") {
-            _rotate_cube_face(event.data.face, event.data.clockwise);
-        }
-        if (event.data && event.data.type === "SCRAMBLE") {
-            _scramble_cube();
-        }
-    });
-});
+#include <emscripten.h>
+
+extern "C" {
+    EMSCRIPTEN_KEEPALIVE
+    void scramble_cube() {
+        cube.scramble();
+    }
+}
 #endif
 
 int main(int argc, char* argv[]) {
@@ -299,7 +377,6 @@ int main(int argc, char* argv[]) {
     SDL_GL_CreateContext(window);
     initGL();
 #ifdef __EMSCRIPTEN__
-    setup_js_listener();
     emscripten_set_main_loop(mainLoop, 0, 1);
 #else
     while (running) { mainLoop(); SDL_Delay(16); }
