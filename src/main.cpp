@@ -260,7 +260,8 @@ void UpdateDrawFrame(void) {
         for (auto& c : cubies) {
             float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
             if (std::abs(v - animSliceValue) < 0.1f) {
-                c.transform = MatrixMultiply(c.transform, rot);
+                // Apply rotation on the left so rotation occurs in world space around origin (0,0,0)
+                c.transform = MatrixMultiply(rot, c.transform);
             }
         }
         
@@ -275,6 +276,20 @@ void UpdateDrawFrame(void) {
                     c.logicalPos.x = roundf(c.logicalPos.x);
                     c.logicalPos.y = roundf(c.logicalPos.y);
                     c.logicalPos.z = roundf(c.logicalPos.z);
+
+                    // Snap translation and rotation matrix elements to prevent floating-point drift
+                    c.transform.m12 = c.logicalPos.x;
+                    c.transform.m13 = c.logicalPos.y;
+                    c.transform.m14 = c.logicalPos.z;
+
+                    float* m = (float*)&c.transform;
+                    for (int i = 0; i < 16; i++) {
+                        if (i != 12 && i != 13 && i != 14 && i != 15) {
+                            if (fabsf(m[i]) < 0.05f) m[i] = 0.0f;
+                            else if (m[i] > 0.95f) m[i] = 1.0f;
+                            else if (m[i] < -0.95f) m[i] = -1.0f;
+                        }
+                    }
                 }
             }
             isAnimating = false;
