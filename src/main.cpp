@@ -29,6 +29,7 @@ const char* fShaderSource =
     "}";
 
 Cube cube;
+SDL_Window* window = nullptr;
 bool running = true;
 float rotX = -0.5f, rotY = 0.5f;
 GLuint program, vbo;
@@ -73,7 +74,7 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
 }
 
 void render() {
-    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     Matrix4 model = Matrix4::rotateX(rotX) * Matrix4::rotateY(rotY);
@@ -85,7 +86,6 @@ void render() {
     glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
 
     std::vector<float> vertices;
-    float s = 1.0f;
     for (int f = 0; f < 6; f++) {
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -142,19 +142,20 @@ void handleInput() {
 void mainLoop() {
     handleInput();
     render();
+    SDL_GL_SwapWindow(window);
 }
 
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    SDL_Window* window = SDL_CreateWindow("3D Rubik's Cube", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_OPENGL);
+    window = SDL_CreateWindow("3D Rubik's Cube", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_OPENGL);
     SDL_GL_CreateContext(window);
     initGL();
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(mainLoop, 0, 1);
 #else
-    while (running) { mainLoop(); SDL_GL_SwapWindow(window); SDL_Delay(16); }
+    while (running) { mainLoop(); SDL_Delay(16); }
 #endif
     return 0;
 }
