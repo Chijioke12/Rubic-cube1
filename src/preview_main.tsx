@@ -18,14 +18,32 @@ function PreviewApp() {
           but the actual game is built via <strong>Emscripten</strong> in your GitHub Actions workflow.
         </p>
         
-        <div className="space-y-4">
+        <div className="space-y-3">
+          <div className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-700 text-left">
+            <h3 className="text-xs font-bold text-neutral-500 uppercase mb-3 tracking-widest">Game Controls</h3>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div className="flex justify-between border-b border-neutral-800 pb-1">
+                <span className="text-neutral-400">Rotate Face</span>
+                <span className="font-mono text-blue-400 font-bold text-xs uppercase bg-blue-500/10 px-1.5 rounded">U, D, L, R, F, B</span>
+              </div>
+              <div className="flex justify-between border-b border-neutral-800 pb-1">
+                <span className="text-neutral-400">Reverse Rotate</span>
+                <span className="font-mono text-blue-400 font-bold text-xs bg-blue-500/10 px-1.5 rounded">Shift + Key</span>
+              </div>
+              <div className="flex justify-between border-b border-neutral-800 pb-1">
+                <span className="text-neutral-400">Scramble</span>
+                <span className="font-mono text-blue-400 font-bold text-xs bg-blue-500/10 px-1.5 rounded">S Key</span>
+              </div>
+              <div className="flex justify-between border-b border-neutral-800 pb-1">
+                <span className="text-neutral-400">View Angle</span>
+                <span className="font-mono text-blue-400 font-bold text-xs bg-blue-500/10 px-1.5 rounded">Mouse Drag</span>
+              </div>
+            </div>
+          </div>
+          
           <div className="flex items-center gap-3 bg-neutral-900/50 p-4 rounded-xl border border-neutral-700">
             <Github className="w-5 h-5 text-neutral-300" />
             <span className="text-sm font-medium">Builds on GitHub Actions</span>
-          </div>
-          <div className="flex items-center gap-3 bg-neutral-900/50 p-4 rounded-xl border border-neutral-700">
-            <ExternalLink className="w-5 h-5 text-neutral-300" />
-            <span className="text-sm font-medium">Live on GitHub Pages (Post-Build)</span>
           </div>
         </div>
         

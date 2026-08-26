@@ -51,7 +51,7 @@ void initGL() {
     glEnable(GL_DEPTH_TEST);
 }
 
-void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, Color c) {
+void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, Color c, float brightness) {
     SDL_Color sc;
     switch(c) {
         case WHITE: sc = {255, 255, 255, 255}; break;
@@ -61,7 +61,7 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
         case BLUE: sc = {0, 0, 255, 255}; break;
         case GREEN: sc = {0, 255, 0, 255}; break;
     }
-    float r = sc.r/255.0f, g = sc.g/255.0f, b = sc.b/255.0f;
+    float r = (sc.r/255.0f) * brightness, g = (sc.g/255.0f) * brightness, b = (sc.b/255.0f) * brightness;
     float quad[] = {
         p1.x, p1.y, p1.z, r, g, b, 1.0f,
         p2.x, p2.y, p2.z, r, g, b, 1.0f,
@@ -74,7 +74,7 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
 }
 
 void render() {
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     Matrix4 model = Matrix4::rotateX(rotX) * Matrix4::rotateY(rotY);
@@ -86,18 +86,30 @@ void render() {
     glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
 
     std::vector<float> vertices;
+    float g = 0.05f; // gap
     for (int f = 0; f < 6; f++) {
+        float b = 1.0f; // brightness
+        if (f == UP) b = 1.0f;
+        if (f == DOWN) b = 0.6f;
+        if (f == LEFT) b = 0.8f;
+        if (f == RIGHT) b = 0.8f;
+        if (f == FRONT) b = 0.9f;
+        if (f == BACK) b = 0.7f;
+
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
                 float y = 1.5f - i, x = j - 1.5f;
                 float y2 = y - 1.0f, x2 = x + 1.0f;
                 Color c = cube.getColor((Face)f, i, j);
-                if (f == UP) drawQuad(vertices, {x, 1.5, -y}, {x2, 1.5, -y}, {x2, 1.5, -y2}, {x, 1.5, -y2}, c);
-                if (f == DOWN) drawQuad(vertices, {x, -1.5, y}, {x2, -1.5, y}, {x2, -1.5, y2}, {x, -1.5, y2}, c);
-                if (f == FRONT) drawQuad(vertices, {x, y, 1.5}, {x2, y, 1.5}, {x2, y2, 1.5}, {x, y2, 1.5}, c);
-                if (f == BACK) drawQuad(vertices, {-x, y, -1.5}, {-x2, y, -1.5}, {-x2, y2, -1.5}, {-x, y2, -1.5}, c);
-                if (f == LEFT) drawQuad(vertices, {-1.5, y, -x}, {-1.5, y, -x2}, {-1.5, y2, -x2}, {-1.5, y2, -x}, c);
-                if (f == RIGHT) drawQuad(vertices, {1.5, y, x}, {1.5, y, x2}, {1.5, y2, x2}, {1.5, y2, x}, c);
+                
+                float xL = x+g, xR = x2-g, yT = y-g, yB = y2+g;
+
+                if (f == UP) drawQuad(vertices, {xL, 1.5, -yT}, {xR, 1.5, -yT}, {xR, 1.5, -yB}, {xL, 1.5, -yB}, c, b);
+                if (f == DOWN) drawQuad(vertices, {xL, -1.5, yT}, {xR, -1.5, yT}, {xR, -1.5, yB}, {xL, -1.5, yB}, c, b);
+                if (f == FRONT) drawQuad(vertices, {xL, yT, 1.5}, {xR, yT, 1.5}, {xR, yB, 1.5}, {xL, yB, 1.5}, c, b);
+                if (f == BACK) drawQuad(vertices, {-xL, yT, -1.5}, {-xR, yT, -1.5}, {-xR, yB, -1.5}, {-xL, yB, -1.5}, c, b);
+                if (f == LEFT) drawQuad(vertices, {-1.5, yT, -xL}, {-1.5, yT, -xR}, {-1.5, yB, -xR}, {-1.5, yB, -xL}, c, b);
+                if (f == RIGHT) drawQuad(vertices, {1.5, yT, xL}, {1.5, yT, xR}, {1.5, yB, xR}, {1.5, yB, xL}, c, b);
             }
         }
     }
