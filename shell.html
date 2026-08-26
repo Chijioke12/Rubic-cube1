@@ -30,6 +30,13 @@
         }
       }
       var Module = {
+        webglContextAttributes: {
+          depth: true,
+          alpha: false,
+          antialias: true,
+          preserveDrawingBuffer: false,
+          failIfMajorPerformanceCaveat: false
+        },
         preRun: [],
         postRun: [],
         print: function(text) { console.log(text); },

@@ -14,13 +14,13 @@
 #endif
 
 // Authentic, vibrant Rubik's Cube colors
-const Color C_UP    = { 250, 250, 250, 255 }; // White
+const Color C_UP    = { 252, 252, 252, 255 }; // White
 const Color C_DOWN  = { 255, 215,   0, 255 }; // Yellow
-const Color C_LEFT  = { 255, 110,   0, 255 }; // Orange
+const Color C_LEFT  = { 255, 105,   0, 255 }; // Orange
 const Color C_RIGHT = { 220,  20,  25, 255 }; // Red
 const Color C_FRONT = {   0, 165,  65, 255 }; // Green
 const Color C_BACK  = {  10,  90, 225, 255 }; // Blue
-const Color C_INNER = {  22,  22,  24, 255 }; // Matte Black Cubie Body
+const Color C_INNER = {  18,  18,  20, 255 }; // Matte Black Cubie Body
 
 struct Cubie {
     Vector3 logicalPos;
@@ -40,7 +40,7 @@ std::deque<Move> moveQueue;
 
 Camera camera = { 0 };
 float camAngleX = 45.0f * DEG2RAD;
-float camAngleY = 30.0f * DEG2RAD;
+float camAngleY = 28.0f * DEG2RAD;
 float camRadius = 8.5f;
 
 bool isAnimating = false;
@@ -86,15 +86,15 @@ void DrawCubie(Cubie& c) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloat(c.transform));
 
-    // 1. Black cubie body with clear gaps between adjacent pieces to prevent any collision
-    const float bodySize = 0.92f;
+    // 1. Solid Matte Black Core Cubie (0.94f width gives a clean 0.06f spacing gap between cubies)
+    const float bodySize = 0.94f;
     DrawCube(Vector3{0, 0, 0}, bodySize, bodySize, bodySize, C_INNER);
-    DrawCubeWires(Vector3{0, 0, 0}, bodySize + 0.001f, bodySize + 0.001f, bodySize + 0.001f, Color{10, 10, 12, 255});
 
-    // 2. Crisp, non-penetrating colored plastic sticker tiles
-    const float stSize  = 0.78f;
-    const float stThick = 0.02f;
-    const float stPos   = (bodySize / 2.0f) + (stThick / 2.0f); // 0.46f + 0.01f = 0.47f (< 0.50f bounds)
+    // 2. Solid Raised Plastic Colored Sticker Tiles
+    const float stSize  = 0.82f;
+    const float stThick = 0.03f;
+    // Outer plane coordinate: 0.47f + 0.015f = 0.485f (safely under 0.50f cell limit to avoid overlap)
+    const float stPos   = (bodySize / 2.0f) + (stThick / 2.0f);
 
     // UP (+Y)
     if (isStickerColor(c.colors[0])) {
@@ -253,13 +253,13 @@ void UpdateDrawFrame(void) {
                             else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 1) { // Down
                             if (fabs(dx) > fabs(dz)) { axis = 2; slice = round(swipeStartPos.z); ang = (dx>0)?-PI/2:PI/2; }
-                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?PI/2:-PI/2; }
+                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 3) { // Right
                             if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?PI/2:-PI/2; }
                             else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 2) { // Left
                             if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?-PI/2:PI/2; }
-                            else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?PI/2:-PI/2; }
+                            else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?-PI/2:PI/2; }
                         }
 
                         StartRotation(axis, slice, ang, 6.0f);
@@ -290,12 +290,19 @@ void UpdateDrawFrame(void) {
     camera.position.y = camRadius * sinf(camAngleY);
 
     BeginDrawing();
-    ClearBackground(Color{14, 14, 16, 255});
+    ClearBackground(Color{12, 12, 14, 255});
+    
     BeginMode3D(camera);
+    // Explicitly enforce OpenGL depth test, depth write mask, and backface culling
+    rlEnableDepthTest();
+    rlEnableDepthMask();
+    rlEnableBackfaceCulling();
+    
     for (auto& c : cubies) {
         DrawCubie(c);
     }
     EndMode3D();
+
     EndDrawing();
 }
 
@@ -312,7 +319,7 @@ int main() {
     camera.position = Vector3{ 6.0f, 5.0f, 6.0f };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };
     camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 34.0f;
+    camera.fovy = 35.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
     InitCube();
