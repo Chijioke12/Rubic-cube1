@@ -78,12 +78,12 @@ void drawQuad(std::vector<float>& vertices, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, 
     float r = (sc.r/255.0f) * brightness, g = (sc.g/255.0f) * brightness, b = (sc.b/255.0f) * brightness;
     // CCW order for front-face culling: BL->BR->TR and BL->TR->TL
     float quad[] = {
+        p1.x, p1.y, p1.z, r, g, b, 1.0f,
         p4.x, p4.y, p4.z, r, g, b, 1.0f,
         p3.x, p3.y, p3.z, r, g, b, 1.0f,
-        p2.x, p2.y, p2.z, r, g, b, 1.0f,
-        p4.x, p4.y, p4.z, r, g, b, 1.0f,
-        p2.x, p2.y, p2.z, r, g, b, 1.0f,
-        p1.x, p1.y, p1.z, r, g, b, 1.0f
+        p1.x, p1.y, p1.z, r, g, b, 1.0f,
+        p3.x, p3.y, p3.z, r, g, b, 1.0f,
+        p2.x, p2.y, p2.z, r, g, b, 1.0f
     };
     vertices.insert(vertices.end(), quad, quad + 42);
 }
@@ -113,18 +113,48 @@ void render() {
 
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
-                float y = 1.5f - i, x = j - 1.5f;
-                float y2 = y - 1.0f, x2 = x + 1.0f;
                 Color c = cube.getColor((Face)f, i, j);
                 
-                float xL = x+g, xR = x2-g, yT = y-g, yB = y2+g;
+                float lx0 = (j - 1.5f) + g;
+                float lx1 = (j - 0.5f) - g;
+                float ly1 = (1.5f - i) - g;
+                float ly0 = (0.5f - i) + g;
 
-                if (f == UP)    drawQuad(vertices, {xL, 1.5, -yT}, {xR, 1.5, -yT}, {xR, 1.5, -yB}, {xL, 1.5, -yB}, c, b);
-                if (f == DOWN)  drawQuad(vertices, {xL, -1.5, yT}, {xR, -1.5, yT}, {xR, -1.5, yB}, {xL, -1.5, yB}, c, b);
-                if (f == FRONT) drawQuad(vertices, {xL, yT, 1.5}, {xR, yT, 1.5}, {xR, yB, 1.5}, {xL, yB, 1.5}, c, b);
-                if (f == BACK)  drawQuad(vertices, {xR, yT, -1.5}, {xL, yT, -1.5}, {xL, yB, -1.5}, {xR, yB, -1.5}, c, b);
-                if (f == LEFT)  drawQuad(vertices, {-1.5, yT, xR}, {-1.5, yT, xL}, {-1.5, yB, xL}, {-1.5, yB, xR}, c, b);
-                if (f == RIGHT) drawQuad(vertices, {1.5, yT, xL}, {1.5, yT, xR}, {1.5, yB, xR}, {1.5, yB, xL}, c, b);
+                Vec3 p1, p2, p3, p4;
+
+                if (f == FRONT) {
+                    p1 = {lx0, ly1, 1.5f};
+                    p2 = {lx1, ly1, 1.5f};
+                    p3 = {lx1, ly0, 1.5f};
+                    p4 = {lx0, ly0, 1.5f};
+                } else if (f == BACK) {
+                    p1 = {-lx0, ly1, -1.5f};
+                    p2 = {-lx1, ly1, -1.5f};
+                    p3 = {-lx1, ly0, -1.5f};
+                    p4 = {-lx0, ly0, -1.5f};
+                } else if (f == LEFT) {
+                    p1 = {-1.5f, ly1, lx0};
+                    p2 = {-1.5f, ly1, lx1};
+                    p3 = {-1.5f, ly0, lx1};
+                    p4 = {-1.5f, ly0, lx0};
+                } else if (f == RIGHT) {
+                    p1 = {1.5f, ly1, -lx0};
+                    p2 = {1.5f, ly1, -lx1};
+                    p3 = {1.5f, ly0, -lx1};
+                    p4 = {1.5f, ly0, -lx0};
+                } else if (f == UP) {
+                    p1 = {lx0, 1.5f, -ly1};
+                    p2 = {lx1, 1.5f, -ly1};
+                    p3 = {lx1, 1.5f, -ly0};
+                    p4 = {lx0, 1.5f, -ly0};
+                } else if (f == DOWN) {
+                    p1 = {lx0, -1.5f, ly1};
+                    p2 = {lx1, -1.5f, ly1};
+                    p3 = {lx1, -1.5f, ly0};
+                    p4 = {lx0, -1.5f, ly0};
+                }
+
+                drawQuad(vertices, p1, p2, p3, p4, c, b);
             }
         }
     }
@@ -141,7 +171,46 @@ void render() {
     glVertexAttribPointer(colLoc, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
 
     glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 7);
+
+    // --- RENDER NATIVE UI BUTTONS FOR MOBILE ---
+    std::vector<float> uiVertices;
+    glDisable(GL_DEPTH_TEST);
+    Matrix4 identity = Matrix4::identity();
+    glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, identity.m);
+
+    Color buttonColors[6] = {
+        {255, 255, 0, 255},   // UP Yellow
+        {255, 255, 255, 255}, // DOWN White
+        {0, 0, 255, 255},     // LEFT Blue
+        {0, 255, 0, 255},     // RIGHT Green
+        {255, 0, 0, 255},     // FRONT Red
+        {255, 165, 0, 255}    // BACK Orange
+    };
+    
+    for(int i=0; i<6; i++) {
+        float bw = 2.0f / 6.0f;
+        float bx = -1.0f + (i * bw);
+        float by = -0.7f;
+        float bh = 0.3f;
+        float p = 0.02f;
+
+        float x0 = bx + p;
+        float x1 = bx + bw - p;
+        float y0 = by - p;
+        float y1 = by - bh + p;
+
+        drawQuad(uiVertices, {x0, y0, 0}, {x1, y0, 0}, {x1, y1, 0}, {x0, y1, 0}, buttonColors[i], 1.0f);
+    }
+    
+    glBufferData(GL_ARRAY_BUFFER, uiVertices.size() * sizeof(float), uiVertices.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, uiVertices.size() / 7);
+    glEnable(GL_DEPTH_TEST);
 }
+
+bool swipeClockwise = true;
+float touchStartX = 0.0f;
+float touchStartY = 0.0f;
+bool isSwiping = false;
 
 void handleInput() {
     SDL_Event event;
@@ -154,10 +223,37 @@ void handleInput() {
             rotX += event.motion.yrel * 0.01f;
         }
 
-        // Touch Rotation
+        if (event.type == SDL_FINGERDOWN) {
+            touchStartX = event.tfinger.x;
+            touchStartY = event.tfinger.y;
+            isSwiping = false;
+        }
+        
         if (event.type == SDL_FINGERMOTION) {
+            isSwiping = true;
             rotY += event.tfinger.dx * 5.0f;
             rotX += event.tfinger.dy * 5.0f;
+        }
+
+        if (event.type == SDL_FINGERUP) {
+            float y = event.tfinger.y;
+            float x = event.tfinger.x;
+            
+            // Check if tapped in the bottom UI area (y > 0.85 approx maps to -0.7 in NDC)
+            if (!isSwiping && y > 0.8f) {
+                int btnIndex = (int)(x * 6.0f);
+                if (btnIndex >= 0 && btnIndex < 6) {
+                    Face f[] = {UP, DOWN, LEFT, RIGHT, FRONT, BACK};
+                    cube.rotateFace(f[btnIndex], swipeClockwise);
+                }
+            } else if (!isSwiping && y < 0.2f) {
+                // Top area tap toggles direction or scrambles
+                if (x < 0.5f) {
+                    swipeClockwise = !swipeClockwise;
+                } else {
+                    cube.scramble();
+                }
+            }
         }
 
         if (event.type == SDL_KEYDOWN) {
