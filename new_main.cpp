@@ -9,6 +9,7 @@
 #include <emscripten/emscripten.h>
 #endif
 
+// Define standard colors
 const Color C_UP = YELLOW;
 const Color C_DOWN = WHITE;
 const Color C_LEFT = BLUE;
@@ -18,17 +19,14 @@ const Color C_BACK = ORANGE;
 const Color C_INNER = BLACK;
 
 struct Cubie {
-    Vector3 logicalPos;
+    Vector3 logicalPos; // -1, 0, 1 for each axis
     Matrix transform;
     Color colors[6]; // UP, DOWN, LEFT, RIGHT, FRONT, BACK
 };
 
 std::vector<Cubie> cubies;
-Camera camera = { 0 };
 
-float camAngleX = 45.0f * DEG2RAD;
-float camAngleY = 35.0f * DEG2RAD;
-float camRadius = 9.0f;
+Camera camera = { 0 };
 
 bool isAnimating = false;
 float animProgress = 0.0f;
@@ -49,6 +47,7 @@ void InitCube() {
             for (int z = -1; z <= 1; z++) {
                 Cubie c;
                 c.logicalPos = {(float)x, (float)y, (float)z};
+                c.transform = MatrixIdentity();
                 c.transform = MatrixTranslate(x, y, z);
                 
                 c.colors[0] = (y == 1) ? C_UP : C_INNER;
@@ -57,6 +56,7 @@ void InitCube() {
                 c.colors[3] = (x == 1) ? C_RIGHT : C_INNER;
                 c.colors[4] = (z == 1) ? C_FRONT : C_INNER;
                 c.colors[5] = (z == -1) ? C_BACK : C_INNER;
+
                 cubies.push_back(c);
             }
         }
@@ -70,31 +70,26 @@ void DrawCubie(Cubie& c) {
     float s = 0.47f; // Half size with gap
 
     rlBegin(RL_QUADS);
+    // FRONT
     rlColor4ub(c.colors[4].r, c.colors[4].g, c.colors[4].b, 255);
     rlVertex3f(-s, -s,  s); rlVertex3f( s, -s,  s); rlVertex3f( s,  s,  s); rlVertex3f(-s,  s,  s);
+    // BACK
     rlColor4ub(c.colors[5].r, c.colors[5].g, c.colors[5].b, 255);
     rlVertex3f(-s,  s, -s); rlVertex3f( s,  s, -s); rlVertex3f( s, -s, -s); rlVertex3f(-s, -s, -s);
+    // UP
     rlColor4ub(c.colors[0].r, c.colors[0].g, c.colors[0].b, 255);
     rlVertex3f(-s,  s,  s); rlVertex3f( s,  s,  s); rlVertex3f( s,  s, -s); rlVertex3f(-s,  s, -s);
+    // DOWN
     rlColor4ub(c.colors[1].r, c.colors[1].g, c.colors[1].b, 255);
     rlVertex3f(-s, -s, -s); rlVertex3f( s, -s, -s); rlVertex3f( s, -s,  s); rlVertex3f(-s, -s,  s);
+    // RIGHT
     rlColor4ub(c.colors[3].r, c.colors[3].g, c.colors[3].b, 255);
     rlVertex3f( s, -s, -s); rlVertex3f( s,  s, -s); rlVertex3f( s,  s,  s); rlVertex3f( s, -s,  s);
+    // LEFT
     rlColor4ub(c.colors[2].r, c.colors[2].g, c.colors[2].b, 255);
     rlVertex3f(-s, -s,  s); rlVertex3f(-s,  s,  s); rlVertex3f(-s,  s, -s); rlVertex3f(-s, -s, -s);
+    
     rlEnd();
-
-    float bo = s + 0.001f;
-    rlBegin(RL_LINES);
-    rlColor4ub(0, 0, 0, 255);
-    rlVertex3f(-bo,-bo, bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo, bo, bo);
-    rlVertex3f( bo, bo, bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo,-bo, bo);
-    rlVertex3f(-bo,-bo,-bo); rlVertex3f( bo,-bo,-bo); rlVertex3f( bo,-bo,-bo); rlVertex3f( bo, bo,-bo);
-    rlVertex3f( bo, bo,-bo); rlVertex3f(-bo, bo,-bo); rlVertex3f(-bo, bo,-bo); rlVertex3f(-bo,-bo,-bo);
-    rlVertex3f(-bo,-bo, bo); rlVertex3f(-bo,-bo,-bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo,-bo,-bo);
-    rlVertex3f( bo, bo, bo); rlVertex3f( bo, bo,-bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo, bo,-bo);
-    rlEnd();
-
     rlPopMatrix();
 }
 
@@ -109,7 +104,6 @@ void StartRotation(int axis, int slice, float angle) {
 }
 
 void ScrambleCube() {
-    if (isAnimating) return;
     for (int i=0; i<20; i++) {
         int axis = GetRandomValue(0, 2);
         int slice = GetRandomValue(-1, 1);
@@ -140,14 +134,15 @@ extern "C" {
 
 void UpdateDrawFrame(void) {
     float dt = GetFrameTime();
-    if (dt > 0.1f) dt = 0.1f; 
 
     if (isAnimating) {
-        float step = 10.0f * dt;
+        float step = 10.0f * dt; // speed
         if (animProgress + step >= 1.0f) {
             step = 1.0f - animProgress;
+            isAnimating = false;
         }
-        
+        animProgress += step;
+
         float frameAngle = animTarget * step;
         Matrix rot = MatrixRotate(animAxis, frameAngle);
 
@@ -155,93 +150,73 @@ void UpdateDrawFrame(void) {
             float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
             if (std::abs(v - animSliceValue) < 0.1f) {
                 c.transform = MatrixMultiply(c.transform, rot);
-            }
-        }
-        
-        animProgress += step;
-        
-        if (animProgress >= 1.0f) {
-            for (auto& c : cubies) {
-                float v = (animSliceAxis == 0) ? c.logicalPos.x : ((animSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
-                if (std::abs(v - animSliceValue) < 0.1f) {
+                if (!isAnimating) { // finish
                     c.logicalPos = Vector3Transform(c.logicalPos, MatrixRotate(animAxis, animTarget));
                     c.logicalPos.x = roundf(c.logicalPos.x);
                     c.logicalPos.y = roundf(c.logicalPos.y);
                     c.logicalPos.z = roundf(c.logicalPos.z);
                 }
             }
-            isAnimating = false;
         }
     }
 
     if (!isAnimating) {
-        bool touchPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || (GetTouchPointCount() > 0 && IsGestureDetected(GESTURE_TAP));
-        bool touchDown = IsMouseButtonDown(MOUSE_BUTTON_LEFT) || GetTouchPointCount() > 0;
-        
-        if (touchDown) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || GetTouchPointCount() > 0) {
             Vector2 mousePos = GetMousePosition();
             Vector2 delta = { mousePos.x - lastMousePos.x, mousePos.y - lastMousePos.y };
             
-            if (touchPressed) {
-                Ray ray = GetMouseRay(mousePos, camera);
+            // Simple camera rotation for demonstration, if not hitting cube
+            // Let's do Raycast
+            Ray ray = GetMouseRay(mousePos, camera);
+            
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                // Raycast vs bounding box [-1.5, 1.5]
                 RayCollision col = GetRayCollisionBox(ray, BoundingBox{Vector3{-1.5f, -1.5f, -1.5f}, Vector3{1.5f, 1.5f, 1.5f}});
                 if (col.hit) {
                     isSwiping = true;
                     swipeStartPos = col.point;
-                    if (fabs(col.point.y - 1.5f) < 0.05f) swipeStartFace = 0; // U
-                    else if (fabs(col.point.y - (-1.5f)) < 0.05f) swipeStartFace = 1; // D
-                    else if (fabs(col.point.x - (-1.5f)) < 0.05f) swipeStartFace = 2; // L
-                    else if (fabs(col.point.x - 1.5f) < 0.05f) swipeStartFace = 3; // R
-                    else if (fabs(col.point.z - 1.5f) < 0.05f) swipeStartFace = 4; // F
-                    else if (fabs(col.point.z - (-1.5f)) < 0.05f) swipeStartFace = 5; // B
-                } else {
-                    isSwiping = false;
+                    if (fabs(col.point.y - 1.5f) < 0.01f) swipeStartFace = 0; // U
+                    else if (fabs(col.point.y - (-1.5f)) < 0.01f) swipeStartFace = 1; // D
+                    else if (fabs(col.point.x - (-1.5f)) < 0.01f) swipeStartFace = 2; // L
+                    else if (fabs(col.point.x - 1.5f) < 0.01f) swipeStartFace = 3; // R
+                    else if (fabs(col.point.z - 1.5f) < 0.01f) swipeStartFace = 4; // F
+                    else if (fabs(col.point.z - (-1.5f)) < 0.01f) swipeStartFace = 5; // B
                 }
             }
 
             if (isSwiping) {
-                Ray ray = GetMouseRay(mousePos, camera);
                 RayCollision col = GetRayCollisionBox(ray, BoundingBox{Vector3{-1.5f, -1.5f, -1.5f}, Vector3{1.5f, 1.5f, 1.5f}});
                 if (col.hit) {
                     float dx = col.point.x - swipeStartPos.x;
                     float dy = col.point.y - swipeStartPos.y;
                     float dz = col.point.z - swipeStartPos.z;
 
-                    float thresh = 0.4f;
+                    float thresh = 0.3f;
                     if (fabs(dx) > thresh || fabs(dy) > thresh || fabs(dz) > thresh) {
+                        // Determine slice and angle
                         int axis = 0; int slice = 0; float ang = PI/2;
                         
                         if (swipeStartFace == 4) { // Front
                             if (fabs(dx) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dx>0)?-PI/2:PI/2; }
                             else { axis = 0; slice = round(swipeStartPos.x); ang = (dy>0)?PI/2:-PI/2; }
-                        } else if (swipeStartFace == 5) { // Back
-                            if (fabs(dx) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dx>0)?PI/2:-PI/2; }
-                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dy>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 0) { // Up
-                            if (fabs(dx) > fabs(dz)) { axis = 2; slice = round(swipeStartPos.z); ang = (dx>0)?PI/2:-PI/2; }
-                            else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?PI/2:-PI/2; }
-                        } else if (swipeStartFace == 1) { // Down
                             if (fabs(dx) > fabs(dz)) { axis = 2; slice = round(swipeStartPos.z); ang = (dx>0)?-PI/2:PI/2; }
                             else { axis = 0; slice = round(swipeStartPos.x); ang = (dz>0)?-PI/2:PI/2; }
                         } else if (swipeStartFace == 3) { // Right
                             if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?PI/2:-PI/2; }
-                            else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?PI/2:-PI/2; }
-                        } else if (swipeStartFace == 2) { // Left
-                            if (fabs(dz) > fabs(dy)) { axis = 1; slice = round(swipeStartPos.y); ang = (dz>0)?-PI/2:PI/2; }
                             else { axis = 2; slice = round(swipeStartPos.z); ang = (dy>0)?-PI/2:PI/2; }
+                        } else {
+                            // Simplify by defaulting if not specifically handled
+                            axis = 0; slice = 0; ang = PI/2;
                         }
 
                         StartRotation(axis, slice, ang);
                         isSwiping = false;
                     }
-                } else {
-                     isSwiping = false;
                 }
-            } else if (!touchPressed) { 
-                camAngleX -= delta.x * 0.01f;
-                camAngleY += delta.y * 0.01f;
-                if (camAngleY > 89.0f * DEG2RAD) camAngleY = 89.0f * DEG2RAD;
-                if (camAngleY < -89.0f * DEG2RAD) camAngleY = -89.0f * DEG2RAD;
+            } else {
+                // Orbit camera
+                UpdateCameraPro(&camera, Vector3{0,0,0}, Vector3{delta.x*0.5f, delta.y*0.5f, 0.0f}, 0.0f);
             }
             lastMousePos = mousePos;
         } else {
@@ -254,12 +229,8 @@ void UpdateDrawFrame(void) {
     }
     lastMousePos = GetMousePosition();
 
-    camera.position.x = camRadius * cosf(camAngleY) * sinf(camAngleX);
-    camera.position.z = camRadius * cosf(camAngleY) * cosf(camAngleX);
-    camera.position.y = camRadius * sinf(camAngleY);
-
     BeginDrawing();
-    ClearBackground(Color{15, 15, 15, 255});
+    ClearBackground(Color{10, 10, 10, 255});
     BeginMode3D(camera);
     for (auto& c : cubies) {
         DrawCubie(c);
@@ -271,10 +242,11 @@ void UpdateDrawFrame(void) {
 int main() {
     InitWindow(800, 800, "Rubik's Cube");
     
-    camera.position = Vector3{ 6.0f, 5.0f, 6.0f };
+    // Setup camera
+    camera.position = Vector3{ 5.0f, 5.0f, 5.0f };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };
     camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 35.0f; // Fix perspective distortion
+    camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
     InitCube();
