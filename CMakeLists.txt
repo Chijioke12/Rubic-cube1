@@ -8,6 +8,7 @@ add_executable(RubiksCube src/main.cpp)
 
 if(EMSCRIPTEN)
     set_target_properties(RubiksCube PROPERTIES SUFFIX ".html")
+    target_compile_options(RubiksCube PUBLIC "-sUSE_SDL=2")
     target_link_options(RubiksCube PUBLIC "--shell-file" "${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
     target_link_options(RubiksCube PUBLIC "-sUSE_SDL=2")
     target_link_options(RubiksCube PUBLIC "-sFULL_ES2=1")
