@@ -28,7 +28,7 @@ Camera camera = { 0 };
 
 float camAngleX = 45.0f * DEG2RAD;
 float camAngleY = 35.0f * DEG2RAD;
-float camRadius = 9.0f;
+float camRadius = 14.0f; // Pulled back so the cube is smaller on screen
 
 bool isAnimating = false;
 float animProgress = 0.0f;
@@ -67,33 +67,23 @@ void DrawCubie(Cubie& c) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloat(c.transform));
 
-    float s = 0.47f; // Half size with gap
+    float s = 0.48f; 
+    float sticker = 0.42f; 
+    float d = 0.49f; 
+    float t = 0.04f; 
 
-    rlBegin(RL_QUADS);
-    rlColor4ub(c.colors[4].r, c.colors[4].g, c.colors[4].b, 255);
-    rlVertex3f(-s, -s,  s); rlVertex3f( s, -s,  s); rlVertex3f( s,  s,  s); rlVertex3f(-s,  s,  s);
-    rlColor4ub(c.colors[5].r, c.colors[5].g, c.colors[5].b, 255);
-    rlVertex3f(-s,  s, -s); rlVertex3f( s,  s, -s); rlVertex3f( s, -s, -s); rlVertex3f(-s, -s, -s);
-    rlColor4ub(c.colors[0].r, c.colors[0].g, c.colors[0].b, 255);
-    rlVertex3f(-s,  s,  s); rlVertex3f( s,  s,  s); rlVertex3f( s,  s, -s); rlVertex3f(-s,  s, -s);
-    rlColor4ub(c.colors[1].r, c.colors[1].g, c.colors[1].b, 255);
-    rlVertex3f(-s, -s, -s); rlVertex3f( s, -s, -s); rlVertex3f( s, -s,  s); rlVertex3f(-s, -s,  s);
-    rlColor4ub(c.colors[3].r, c.colors[3].g, c.colors[3].b, 255);
-    rlVertex3f( s, -s, -s); rlVertex3f( s,  s, -s); rlVertex3f( s,  s,  s); rlVertex3f( s, -s,  s);
-    rlColor4ub(c.colors[2].r, c.colors[2].g, c.colors[2].b, 255);
-    rlVertex3f(-s, -s,  s); rlVertex3f(-s,  s,  s); rlVertex3f(-s,  s, -s); rlVertex3f(-s, -s, -s);
-    rlEnd();
+    // Draw solid black inner core
+    DrawCube(Vector3{0,0,0}, s*2, s*2, s*2, BLACK);
 
-    float bo = s + 0.001f;
-    rlBegin(RL_LINES);
-    rlColor4ub(0, 0, 0, 255);
-    rlVertex3f(-bo,-bo, bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo, bo, bo);
-    rlVertex3f( bo, bo, bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo,-bo, bo);
-    rlVertex3f(-bo,-bo,-bo); rlVertex3f( bo,-bo,-bo); rlVertex3f( bo,-bo,-bo); rlVertex3f( bo, bo,-bo);
-    rlVertex3f( bo, bo,-bo); rlVertex3f(-bo, bo,-bo); rlVertex3f(-bo, bo,-bo); rlVertex3f(-bo,-bo,-bo);
-    rlVertex3f(-bo,-bo, bo); rlVertex3f(-bo,-bo,-bo); rlVertex3f( bo,-bo, bo); rlVertex3f( bo,-bo,-bo);
-    rlVertex3f( bo, bo, bo); rlVertex3f( bo, bo,-bo); rlVertex3f(-bo, bo, bo); rlVertex3f(-bo, bo,-bo);
-    rlEnd();
+    auto hasColor = [](Color col) { return col.r != 0 || col.g != 0 || col.b != 0; };
+
+    // Draw 3D plastic tiles
+    if (hasColor(c.colors[4])) DrawCube(Vector3{0, 0, d}, sticker*2, sticker*2, t, c.colors[4]);
+    if (hasColor(c.colors[5])) DrawCube(Vector3{0, 0, -d}, sticker*2, sticker*2, t, c.colors[5]);
+    if (hasColor(c.colors[0])) DrawCube(Vector3{0, d, 0}, sticker*2, t, sticker*2, c.colors[0]);
+    if (hasColor(c.colors[1])) DrawCube(Vector3{0, -d, 0}, sticker*2, t, sticker*2, c.colors[1]);
+    if (hasColor(c.colors[3])) DrawCube(Vector3{d, 0, 0}, t, sticker*2, sticker*2, c.colors[3]);
+    if (hasColor(c.colors[2])) DrawCube(Vector3{-d, 0, 0}, t, sticker*2, sticker*2, c.colors[2]);
 
     rlPopMatrix();
 }
@@ -139,11 +129,19 @@ extern "C" {
 }
 
 void UpdateDrawFrame(void) {
+#if defined(__EMSCRIPTEN__)
+    int w = EM_ASM_INT({ return window.innerWidth; });
+    int h = EM_ASM_INT({ return window.innerHeight; });
+    if (w != GetScreenWidth() || h != GetScreenHeight()) {
+        SetWindowSize(w, h);
+    }
+#endif
+
     float dt = GetFrameTime();
     if (dt > 0.1f) dt = 0.1f; 
 
     if (isAnimating) {
-        float step = 10.0f * dt;
+        float step = 5.0f * dt; // Slower speed so the shift effect is highly visible
         if (animProgress + step >= 1.0f) {
             step = 1.0f - animProgress;
         }
@@ -207,7 +205,7 @@ void UpdateDrawFrame(void) {
                     float dy = col.point.y - swipeStartPos.y;
                     float dz = col.point.z - swipeStartPos.z;
 
-                    float thresh = 0.4f;
+                    float thresh = 0.35f;
                     if (fabs(dx) > thresh || fabs(dy) > thresh || fabs(dz) > thresh) {
                         int axis = 0; int slice = 0; float ang = PI/2;
                         
@@ -269,12 +267,19 @@ void UpdateDrawFrame(void) {
 }
 
 int main() {
-    InitWindow(800, 800, "Rubik's Cube");
+    int screenWidth = 800;
+    int screenHeight = 800;
+#if defined(__EMSCRIPTEN__)
+    screenWidth = EM_ASM_INT({ return window.innerWidth; });
+    screenHeight = EM_ASM_INT({ return window.innerHeight; });
+#endif
+
+    InitWindow(screenWidth, screenHeight, "Rubik's Cube");
     
     camera.position = Vector3{ 6.0f, 5.0f, 6.0f };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };
     camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 35.0f; // Fix perspective distortion
+    camera.fovy = 35.0f; 
     camera.projection = CAMERA_PERSPECTIVE;
 
     InitCube();
