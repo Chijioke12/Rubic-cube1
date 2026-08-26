@@ -360,13 +360,6 @@ void mainLoop() {
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-
-extern "C" {
-    EMSCRIPTEN_KEEPALIVE
-    void scramble_cube() {
-        cube.scramble();
-    }
-}
 #endif
 
 int main(int argc, char* argv[]) {
