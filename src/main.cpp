@@ -5,6 +5,7 @@
 #include <GLES2/gl2.h>
 #define EXPORT_FN EMSCRIPTEN_KEEPALIVE
 #else
+#define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
 #include <GL/glext.h>
 #define EXPORT_FN
@@ -475,6 +476,8 @@ struct Ray {
 };
 
 Ray GetPointerRay(float screenX, float screenY, int screenW, int screenH, const Mat4& proj, const Mat4& view) {
+    (void)proj;
+    (void)view;
     float ndcX = (2.0f * screenX) / (float)(screenW > 0 ? screenW : 1) - 1.0f;
     float ndcY = 1.0f - (2.0f * screenY) / (float)(screenH > 0 ? screenH : 1);
 
@@ -634,40 +637,40 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
                 // Dominant movement along Tangent A
                 float sign = (dotA > 0.0f) ? 1.0f : -1.0f;
 
-                if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> rotates around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> rotates around Y axis
+                if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> turns around Y axis
                     axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> rotates around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> rotates around Z axis
+                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> turns around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> turns around Z axis
                     axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> rotates around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> rotates around Z axis
+                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> turns around Z axis
                     axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> turns around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> turns around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
                 }
             } else {
                 // Dominant movement along Tangent B
                 float sign = (dotB > 0.0f) ? 1.0f : -1.0f;
 
-                if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> rotates around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> rotates around X axis
+                if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> turns around X axis
                     axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> rotates around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> rotates around X axis
+                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> turns around X axis
                     axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> rotates around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> rotates around Y axis
+                } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> turns around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> turns around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> turns around Y axis
                     axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> turns around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
                 }
             }
 
             StartRotation(axis, slice, angle, 9.0f);
-            gIsSwipingCube = false; // Swipe action consumed!
+            gIsSwipingCube = false; // Swipe action consumed
         }
     } else if (!gIsSwipingCube) {
         // Smooth camera orbit
@@ -813,8 +816,13 @@ void RenderFrame() {
 }
 
 void ProcessEvents() {
-    int screenW, screenH;
+    int screenW = 800, screenH = 800;
     SDL_GL_GetDrawableSize(gWindow, &screenW, &screenH);
+    int winW = screenW, winH = screenH;
+    SDL_GetWindowSize(gWindow, &winW, &winH);
+
+    float scaleX = (winW > 0) ? ((float)screenW / (float)winW) : 1.0f;
+    float scaleY = (winH > 0) ? ((float)screenH / (float)winH) : 1.0f;
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -823,11 +831,11 @@ void ProcessEvents() {
             exit(0);
 #endif
         } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-            HandlePointerDown((float)e.button.x, (float)e.button.y, screenW, screenH);
+            HandlePointerDown((float)e.button.x * scaleX, (float)e.button.y * scaleY, screenW, screenH);
         } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
             HandlePointerUp();
         } else if (e.type == SDL_MOUSEMOTION && gIsPointerDown) {
-            HandlePointerMove((float)e.motion.x, (float)e.motion.y, screenW, screenH);
+            HandlePointerMove((float)e.motion.x * scaleX, (float)e.motion.y * scaleY, screenW, screenH);
         } else if (e.type == SDL_FINGERDOWN) {
             HandlePointerDown(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
         } else if (e.type == SDL_FINGERUP) {
@@ -843,7 +851,23 @@ void MainLoopCallback() {
     RenderFrame();
 }
 
+static GLuint CompileShader(GLenum type, const char* source) {
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &source, nullptr);
+    glCompileShader(s);
+    GLint status = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &status);
+    if (!status) {
+        char log[1024];
+        glGetShaderInfoLog(s, sizeof(log), nullptr, log);
+        printf("Shader compile error: %s\n", log);
+    }
+    return s;
+}
+
 int main(int argc, char* argv[]) {
+    (void)argc;
+    (void)argv;
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         printf("SDL_Init Error: %s\n", SDL_GetError());
         return 1;
@@ -881,18 +905,21 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vs, 1, &VS_SOURCE, nullptr);
-    glCompileShader(vs);
-
-    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fs, 1, &FS_SOURCE, nullptr);
-    glCompileShader(fs);
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, VS_SOURCE);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, FS_SOURCE);
 
     gProgram = glCreateProgram();
     glAttachShader(gProgram, vs);
     glAttachShader(gProgram, fs);
     glLinkProgram(gProgram);
+
+    GLint linkStatus = 0;
+    glGetProgramiv(gProgram, GL_LINK_STATUS, &linkStatus);
+    if (!linkStatus) {
+        char log[1024];
+        glGetProgramInfoLog(gProgram, sizeof(log), nullptr, log);
+        printf("Program link error: %s\n", log);
+    }
 
     gLocPosition = glGetAttribLocation(gProgram, "aPosition");
     gLocNormal   = glGetAttribLocation(gProgram, "aNormal");
