@@ -586,17 +586,33 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
                 Mat4 view = Mat4::LookAt({0, 0, gCamRadius}, {0, 0, 0}, {0, 1, 0});
                 Mat4 viewProj = Mat4::Multiply(proj, view);
 
-                // Local face tangent vectors
+                // Face normal and local face tangent vectors
+                Vec3 faceNorm = {0,0,0};
                 Vec3 tangA = {0,0,0};
                 Vec3 tangB = {0,0,0};
 
-                if (gSwipeStartFace == 0 || gSwipeStartFace == 1) { // UP (+Y) / DOWN (-Y)
+                if (gSwipeStartFace == 0) { // UP (+Y)
+                    faceNorm = {0.0f, 1.0f, 0.0f};
                     tangA = {1.0f, 0.0f, 0.0f}; // +X
                     tangB = {0.0f, 0.0f, 1.0f}; // +Z
-                } else if (gSwipeStartFace == 2 || gSwipeStartFace == 3) { // LEFT (-X) / RIGHT (+X)
+                } else if (gSwipeStartFace == 1) { // DOWN (-Y)
+                    faceNorm = {0.0f, -1.0f, 0.0f};
+                    tangA = {1.0f, 0.0f, 0.0f}; // +X
+                    tangB = {0.0f, 0.0f, 1.0f}; // +Z
+                } else if (gSwipeStartFace == 2) { // LEFT (-X)
+                    faceNorm = {-1.0f, 0.0f, 0.0f};
                     tangA = {0.0f, 1.0f, 0.0f}; // +Y
                     tangB = {0.0f, 0.0f, 1.0f}; // +Z
-                } else if (gSwipeStartFace == 4 || gSwipeStartFace == 5) { // FRONT (+Z) / BACK (-Z)
+                } else if (gSwipeStartFace == 3) { // RIGHT (+X)
+                    faceNorm = {1.0f, 0.0f, 0.0f};
+                    tangA = {0.0f, 1.0f, 0.0f}; // +Y
+                    tangB = {0.0f, 0.0f, 1.0f}; // +Z
+                } else if (gSwipeStartFace == 4) { // FRONT (+Z)
+                    faceNorm = {0.0f, 0.0f, 1.0f};
+                    tangA = {1.0f, 0.0f, 0.0f}; // +X
+                    tangB = {0.0f, 1.0f, 0.0f}; // +Y
+                } else if (gSwipeStartFace == 5) { // BACK (-Z)
+                    faceNorm = {0.0f, 0.0f, -1.0f};
                     tangA = {1.0f, 0.0f, 0.0f}; // +X
                     tangB = {0.0f, 1.0f, 0.0f}; // +Y
                 }
@@ -621,44 +637,34 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
                 float dotA = (totalDx * dirA.x + totalDy * dirA.y) / lenA;
                 float dotB = (totalDx * dirB.x + totalDy * dirB.y) / lenB;
 
+                Vec3 vLocal = {0,0,0};
+                if (std::abs(dotA) >= std::abs(dotB)) {
+                    vLocal = tangA * ((dotA > 0.0f) ? 1.0f : -1.0f);
+                } else {
+                    vLocal = tangB * ((dotB > 0.0f) ? 1.0f : -1.0f);
+                }
+
+                // Torque vector T = P_face_center x V_local
+                // This physically aligns the rotational displacement (omega x P) with the swipe direction (V_local)
+                Vec3 pCenter = faceNorm * 1.5f;
+                Vec3 torque = Vec3Cross(pCenter, vLocal);
+
                 int axis = 0;
                 int slice = 0;
                 float angle = 0.0f;
 
-                if (std::abs(dotA) >= std::abs(dotB)) {
-                    // Dominant movement along Tangent A
-                    float sign = (dotA > 0.0f) ? 1.0f : -1.0f;
-
-                    if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> turn around local Y
-                        axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> turn around local Y
-                        axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> turn around local Z
-                        axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> turn around local Z
-                        axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> turn around local Z
-                        axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> turn around local Z
-                        axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
-                    }
+                if (std::abs(torque.x) >= std::abs(torque.y) && std::abs(torque.x) >= std::abs(torque.z)) {
+                    axis = 0;
+                    slice = gTouchedCubie.x;
+                    angle = (torque.x > 0.0f ? 1.0f : -1.0f) * (PI_F / 2.0f);
+                } else if (std::abs(torque.y) >= std::abs(torque.x) && std::abs(torque.y) >= std::abs(torque.z)) {
+                    axis = 1;
+                    slice = gTouchedCubie.y;
+                    angle = (torque.y > 0.0f ? 1.0f : -1.0f) * (PI_F / 2.0f);
                 } else {
-                    // Dominant movement along Tangent B
-                    float sign = (dotB > 0.0f) ? 1.0f : -1.0f;
-
-                    if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> turn around local X
-                        axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> turn around local X
-                        axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> turn around local X
-                        axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> turn around local X
-                        axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> turn around local Y
-                        axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
-                    } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> turn around local Y
-                        axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
-                    }
+                    axis = 2;
+                    slice = gTouchedCubie.z;
+                    angle = (torque.z > 0.0f ? 1.0f : -1.0f) * (PI_F / 2.0f);
                 }
 
                 StartRotation(axis, slice, angle, 9.0f);
