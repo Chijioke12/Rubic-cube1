@@ -142,6 +142,19 @@ struct Mat4 {
     }
 };
 
+Vec2 Project3DToScreen(const Vec3& pt, const Mat4& vp, int w, int h) {
+    float x = vp.m[0]*pt.x + vp.m[4]*pt.y + vp.m[8]*pt.z + vp.m[12];
+    float y = vp.m[1]*pt.x + vp.m[5]*pt.y + vp.m[9]*pt.z + vp.m[13];
+    float w_clip = vp.m[3]*pt.x + vp.m[7]*pt.y + vp.m[11]*pt.z + vp.m[15];
+    if (std::abs(w_clip) > 1e-6f) {
+        x /= w_clip;
+        y /= w_clip;
+    }
+    float sx = (x * 0.5f + 0.5f) * (float)w;
+    float sy = (1.0f - (y * 0.5f + 0.5f)) * (float)h;
+    return { sx, sy };
+}
+
 // -------------------------------------------------------------
 // Shaders & GPU Resources
 // -------------------------------------------------------------
@@ -167,10 +180,10 @@ const char* FS_SOURCE =
     "varying vec2 vTexCoord;\n"
     "uniform sampler2D uTexture;\n"
     "void main() {\n"
-    "    vec3 lightDir = normalize(vec3(0.5, 0.9, 0.7));\n"
+    "    vec3 lightDir = normalize(vec3(0.4, 0.85, 0.6));\n"
     "    float diff = max(dot(vNormal, lightDir), 0.0);\n"
-    "    vec3 ambient = vec3(0.68);\n"
-    "    vec3 diffuse = vec3(0.32) * diff;\n"
+    "    vec3 ambient = vec3(0.72);\n"
+    "    vec3 diffuse = vec3(0.28) * diff;\n"
     "    vec3 lighting = ambient + diffuse;\n"
     "    vec4 tex = texture2D(uTexture, vTexCoord);\n"
     "    gl_FragColor = vec4(tex.rgb * lighting, tex.a);\n"
@@ -194,9 +207,7 @@ struct Vertex {
     float uv[2];
 };
 
-// 6 Faces of a unit cubie
-// 0: +Y (Top), 1: -Y (Bottom), 2: -X (Left), 3: +X (Right), 4: +Z (Front), 5: -Z (Back)
-const float CUBIE_S = 0.492f; // Half-size for crisp 0.016 unit separation gap
+const float CUBIE_S = 0.492f;
 
 Vertex gCubeVertices[24] = {
     // 0: +Y (UP)
@@ -245,9 +256,6 @@ unsigned short gCubeIndices[36] = {
     20,21,22, 20,22,23   // BACK
 };
 
-// -------------------------------------------------------------
-// Procedural Sticker Texture Creation (Heap Allocated)
-// -------------------------------------------------------------
 struct RGBA { unsigned char r, g, b, a; };
 
 const RGBA COLOR_PALETTE[6] = {
@@ -258,13 +266,12 @@ const RGBA COLOR_PALETTE[6] = {
     {   0, 165,  65, 255 }, // 4: Green (F)
     {  10,  90, 225, 255 }  // 5: Blue (B)
 };
-const RGBA COLOR_CORE = { 18, 18, 20, 255 }; // Matte Black
+const RGBA COLOR_CORE = { 18, 18, 20, 255 }; // Matte Black Core
 
 void CreateProceduralTextures() {
     const int TEX_SIZE = 256;
     std::vector<RGBA> pixels(TEX_SIZE * TEX_SIZE);
 
-    // Generate 6 Sticker textures (Rounded glossy face with black rim)
     for (int t = 0; t < 6; ++t) {
         RGBA stickerCol = COLOR_PALETTE[t];
         int margin = 14;
@@ -302,7 +309,6 @@ void CreateProceduralTextures() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
 
-    // 6: Solid Black Core texture for unexposed interior faces
     for (int i = 0; i < TEX_SIZE * TEX_SIZE; ++i) {
         pixels[i] = COLOR_CORE;
     }
@@ -337,7 +343,7 @@ std::deque<Move> gMoveQueue;
 bool gIsAnimating = false;
 float gAnimProgress = 0.0f;
 float gAnimTarget = 0.0f;
-float gCurrentAnimSpeed = 6.0f;
+float gCurrentAnimSpeed = 8.0f;
 Vec3 gAnimAxis = {0,0,0};
 int gAnimSliceAxis = 0;
 int gAnimSliceValue = 0;
@@ -364,7 +370,7 @@ void InitCubeModel() {
     }
 }
 
-void StartRotation(int axis, int slice, float angle, float speed = 6.0f) {
+void StartRotation(int axis, int slice, float angle, float speed = 8.0f) {
     if (gIsAnimating) return;
     gIsAnimating = true;
     gAnimProgress = 0.0f;
@@ -377,20 +383,42 @@ void StartRotation(int axis, int slice, float angle, float speed = 6.0f) {
 
 void ScrambleCube() {
     gMoveQueue.clear();
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < 22; ++i) {
         Move m;
         m.axis = rand() % 3;
         m.slice = (rand() % 3) - 1; // -1, 0, or 1
         m.angle = ((rand() % 2 == 0) ? 90.0f : -90.0f) * DEG2RAD_F;
-        m.speed = 18.0f; // Fast, fluid scramble
+        m.speed = 18.0f;
         gMoveQueue.push_back(m);
     }
 }
 
-extern "C" {
-    EXPORT_FN void scramble_cube() {
-        ScrambleCube();
+void ResetCube() {
+    gMoveQueue.clear();
+    gIsAnimating = false;
+    InitCubeModel();
+}
+
+void TurnFace(int face, int dir) {
+    // face: 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
+    // dir: 1 (CW) or -1 (CCW)
+    Move m;
+    float sign = (float)dir;
+    if (face == 0) { // U (top: +Y, slice 1)
+        m.axis = 1; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
+    } else if (face == 1) { // D (bottom: -Y, slice -1)
+        m.axis = 1; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
+    } else if (face == 2) { // L (left: -X, slice -1)
+        m.axis = 0; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
+    } else if (face == 3) { // R (right: +X, slice 1)
+        m.axis = 0; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
+    } else if (face == 4) { // F (front: +Z, slice 1)
+        m.axis = 2; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
+    } else if (face == 5) { // B (back: -Z, slice -1)
+        m.axis = 2; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
     }
+    m.speed = 9.0f;
+    gMoveQueue.push_back(m);
 }
 
 // -------------------------------------------------------------
@@ -404,10 +432,42 @@ float gCamAngleY = 28.0f * DEG2RAD_F;
 float gCamRadius = 8.5f;
 
 bool gIsPointerDown = false;
-bool gIsSwiping = false;
+bool gIsSwipingCube = false;
+Vec2 gTouchStartScreen = {0, 0};
 Vec2 gLastPointerPos = {0, 0};
-Vec3 gSwipeStartPos = {0, 0, 0};
-int gSwipeStartFace = -1;
+
+Vec3 gSwipeStartHitPt = {0, 0, 0};
+int gSwipeStartFace = -1; // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
+struct IntVec3 { int x, y, z; };
+IntVec3 gTouchedCubie = {0, 0, 0};
+
+void RotateView(int dir) {
+    // 0: Left, 1: Right, 2: Up, 3: Down
+    if (dir == 0) gCamAngleX -= 45.0f * DEG2RAD_F;
+    else if (dir == 1) gCamAngleX += 45.0f * DEG2RAD_F;
+    else if (dir == 2) {
+        gCamAngleY += 25.0f * DEG2RAD_F;
+        if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
+    } else if (dir == 3) {
+        gCamAngleY -= 25.0f * DEG2RAD_F;
+        if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
+    }
+}
+
+extern "C" {
+    EXPORT_FN void scramble_cube() {
+        ScrambleCube();
+    }
+    EXPORT_FN void reset_cube() {
+        ResetCube();
+    }
+    EXPORT_FN void turn_face(int face, int dir) {
+        TurnFace(face, dir);
+    }
+    EXPORT_FN void rotate_view(int dir) {
+        RotateView(dir);
+    }
+}
 
 struct Ray {
     Vec3 origin;
@@ -464,9 +524,13 @@ bool RayIntersectAABB(const Ray& ray, const Vec3& bmin, const Vec3& bmax, float&
 
 void HandlePointerDown(float px, float py, int screenW, int screenH) {
     gIsPointerDown = true;
+    gTouchStartScreen = {px, py};
     gLastPointerPos = {px, py};
 
     float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
+    float baseRadius = 8.5f;
+    gCamRadius = (aspect < 1.0f) ? (baseRadius / (aspect * 1.05f)) : baseRadius;
+
     Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
     Vec3 eye = {
         gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
@@ -478,17 +542,33 @@ void HandlePointerDown(float px, float py, int screenW, int screenH) {
 
     float tHit;
     Vec3 hitPt;
-    if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
-        gIsSwiping = true;
-        gSwipeStartPos = hitPt;
-        if (std::abs(hitPt.y - 1.5f) < 0.15f) gSwipeStartFace = 0; // U
-        else if (std::abs(hitPt.y - (-1.5f)) < 0.15f) gSwipeStartFace = 1; // D
-        else if (std::abs(hitPt.x - (-1.5f)) < 0.15f) gSwipeStartFace = 2; // L
-        else if (std::abs(hitPt.x - 1.5f) < 0.15f) gSwipeStartFace = 3; // R
-        else if (std::abs(hitPt.z - 1.5f) < 0.15f) gSwipeStartFace = 4; // F
-        else if (std::abs(hitPt.z - (-1.5f)) < 0.15f) gSwipeStartFace = 5; // B
+    if (RayIntersectAABB(ray, {-1.52f, -1.52f, -1.52f}, {1.52f, 1.52f, 1.52f}, tHit, hitPt)) {
+        gIsSwipingCube = true;
+        gSwipeStartHitPt = hitPt;
+
+        // Identify which of the 6 faces was touched
+        float distU = std::abs(hitPt.y - 1.5f);
+        float distD = std::abs(hitPt.y - (-1.5f));
+        float distL = std::abs(hitPt.x - (-1.5f));
+        float distR = std::abs(hitPt.x - 1.5f);
+        float distF = std::abs(hitPt.z - 1.5f);
+        float distB = std::abs(hitPt.z - (-1.5f));
+
+        float minDist = distU;
+        gSwipeStartFace = 0; // U
+        if (distD < minDist) { minDist = distD; gSwipeStartFace = 1; }
+        if (distL < minDist) { minDist = distL; gSwipeStartFace = 2; }
+        if (distR < minDist) { minDist = distR; gSwipeStartFace = 3; }
+        if (distF < minDist) { minDist = distF; gSwipeStartFace = 4; }
+        if (distB < minDist) { minDist = distB; gSwipeStartFace = 5; }
+
+        // Find cubie discrete coordinate (-1, 0, or 1)
+        int cx = (hitPt.x < -0.5f) ? -1 : ((hitPt.x > 0.5f) ? 1 : 0);
+        int cy = (hitPt.y < -0.5f) ? -1 : ((hitPt.y > 0.5f) ? 1 : 0);
+        int cz = (hitPt.z < -0.5f) ? -1 : ((hitPt.z > 0.5f) ? 1 : 0);
+        gTouchedCubie = {cx, cy, cz};
     } else {
-        gIsSwiping = false;
+        gIsSwipingCube = false;
     }
 }
 
@@ -497,57 +577,102 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
     float dx = px - gLastPointerPos.x;
     float dy = py - gLastPointerPos.y;
 
-    if (gIsSwiping && !gIsAnimating && gMoveQueue.empty()) {
-        float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-        Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-        Vec3 eye = {
-            gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-            gCamRadius * std::sin(gCamAngleY),
-            gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-        };
-        Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
-        Ray ray = GetPointerRay(px, py, screenW, screenH, proj, view);
+    if (gIsSwipingCube && !gIsAnimating && gMoveQueue.empty()) {
+        float totalDx = px - gTouchStartScreen.x;
+        float totalDy = py - gTouchStartScreen.y;
+        float dragDistSq = totalDx * totalDx + totalDy * totalDy;
 
-        float tHit;
-        Vec3 hitPt;
-        if (RayIntersectAABB(ray, {-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}, tHit, hitPt)) {
-            float sdx = hitPt.x - gSwipeStartPos.x;
-            float sdy = hitPt.y - gSwipeStartPos.y;
-            float sdz = hitPt.z - gSwipeStartPos.z;
+        // When pointer moves at least ~16 screen pixels from start
+        if (dragDistSq >= 256.0f) {
+            float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
+            float baseRadius = 8.5f;
+            float camRad = (aspect < 1.0f) ? (baseRadius / (aspect * 1.05f)) : baseRadius;
+            Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
+            Vec3 eye = {
+                camRad * std::cos(gCamAngleY) * std::sin(gCamAngleX),
+                camRad * std::sin(gCamAngleY),
+                camRad * std::cos(gCamAngleY) * std::cos(gCamAngleX)
+            };
+            Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
+            Mat4 viewProj = Mat4::Multiply(proj, view);
 
-            float thresh = 0.30f;
-            if (std::abs(sdx) > thresh || std::abs(sdy) > thresh || std::abs(sdz) > thresh) {
-                int axis = 0; int slice = 0; float ang = PI_F / 2.0f;
-                if (gSwipeStartFace == 4) { // Front
-                    if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
-                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
-                } else if (gSwipeStartFace == 5) { // Back
-                    if (std::abs(sdx) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
-                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
-                } else if (gSwipeStartFace == 0) { // Up
-                    if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdx>0)?PI_F/2.0f:-PI_F/2.0f; }
-                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
-                } else if (gSwipeStartFace == 1) { // Down
-                    if (std::abs(sdx) > std::abs(sdz)) { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdx>0)?-PI_F/2.0f:PI_F/2.0f; }
-                    else { axis = 0; slice = (int)std::round(gSwipeStartPos.x); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
-                } else if (gSwipeStartFace == 3) { // Right
-                    if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdz>0)?PI_F/2.0f:-PI_F/2.0f; }
-                    else { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdy>0)?-PI_F/2.0f:PI_F/2.0f; }
-                } else if (gSwipeStartFace == 2) { // Left
-                    if (std::abs(sdz) > std::abs(sdy)) { axis = 1; slice = (int)std::round(gSwipeStartPos.y); ang = (sdz>0)?-PI_F/2.0f:PI_F/2.0f; }
-                    else { axis = 2; slice = (int)std::round(gSwipeStartPos.z); ang = (sdy>0)?PI_F/2.0f:-PI_F/2.0f; }
-                }
+            // Project 3D Face Tangents to Screen Space
+            Vec3 tangA = {0,0,0};
+            Vec3 tangB = {0,0,0};
 
-                StartRotation(axis, slice, ang, 6.0f);
-                gIsSwiping = false;
+            if (gSwipeStartFace == 0 || gSwipeStartFace == 1) { // UP (+Y) / DOWN (-Y)
+                tangA = {1.0f, 0.0f, 0.0f}; // +X
+                tangB = {0.0f, 0.0f, 1.0f}; // +Z
+            } else if (gSwipeStartFace == 2 || gSwipeStartFace == 3) { // LEFT (-X) / RIGHT (+X)
+                tangA = {0.0f, 1.0f, 0.0f}; // +Y
+                tangB = {0.0f, 0.0f, 1.0f}; // +Z
+            } else if (gSwipeStartFace == 4 || gSwipeStartFace == 5) { // FRONT (+Z) / BACK (-Z)
+                tangA = {1.0f, 0.0f, 0.0f}; // +X
+                tangB = {0.0f, 1.0f, 0.0f}; // +Y
             }
-        } else {
-            gIsSwiping = false;
+
+            Vec2 scrOrig = Project3DToScreen(gSwipeStartHitPt, viewProj, screenW, screenH);
+            Vec2 scrA    = Project3DToScreen(gSwipeStartHitPt + tangA * 0.5f, viewProj, screenW, screenH);
+            Vec2 scrB    = Project3DToScreen(gSwipeStartHitPt + tangB * 0.5f, viewProj, screenW, screenH);
+
+            Vec2 dirA = { scrA.x - scrOrig.x, scrA.y - scrOrig.y };
+            Vec2 dirB = { scrB.x - scrOrig.x, scrB.y - scrOrig.y };
+
+            float lenA = std::sqrt(dirA.x * dirA.x + dirA.y * dirA.y);
+            float lenB = std::sqrt(dirB.x * dirB.x + dirB.y * dirB.y);
+            if (lenA < 1e-4f) lenA = 1.0f;
+            if (lenB < 1e-4f) lenB = 1.0f;
+
+            float dotA = (totalDx * dirA.x + totalDy * dirA.y) / lenA;
+            float dotB = (totalDx * dirB.x + totalDy * dirB.y) / lenB;
+
+            int axis = 0;
+            int slice = 0;
+            float angle = 0.0f;
+
+            if (std::abs(dotA) >= std::abs(dotB)) {
+                // Dominant movement along Tangent A
+                float sign = (dotA > 0.0f) ? 1.0f : -1.0f;
+
+                if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> rotates around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> rotates around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> rotates around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> rotates around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> rotates around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> rotates around Z axis
+                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                }
+            } else {
+                // Dominant movement along Tangent B
+                float sign = (dotB > 0.0f) ? 1.0f : -1.0f;
+
+                if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> rotates around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> rotates around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> rotates around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> rotates around X axis
+                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> rotates around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
+                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> rotates around Y axis
+                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                }
+            }
+
+            StartRotation(axis, slice, angle, 9.0f);
+            gIsSwipingCube = false; // Swipe action consumed!
         }
-    } else if (!gIsSwiping) {
-        // Orbit camera
-        gCamAngleX -= dx * 0.008f;
-        gCamAngleY += dy * 0.008f;
+    } else if (!gIsSwipingCube) {
+        // Smooth camera orbit
+        gCamAngleX -= dx * 0.007f;
+        gCamAngleY += dy * 0.007f;
         if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
         if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
     }
@@ -557,7 +682,7 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
 
 void HandlePointerUp() {
     gIsPointerDown = false;
-    gIsSwiping = false;
+    gIsSwipingCube = false;
 }
 
 // -------------------------------------------------------------
@@ -578,7 +703,7 @@ void RenderFrame() {
     gLastTime = now;
     if (dt > 0.05f) dt = 0.05f;
 
-    // Process scramble move queue
+    // Process move queue
     if (!gIsAnimating && !gMoveQueue.empty()) {
         Move nextMove = gMoveQueue.front();
         gMoveQueue.pop_front();
@@ -595,21 +720,16 @@ void RenderFrame() {
             for (auto& c : gCubies) {
                 float v = (gAnimSliceAxis == 0) ? c.logicalPos.x : ((gAnimSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
                 if (std::abs(v - (float)gAnimSliceValue) < 0.1f) {
-                    // Update logical coordinate
                     c.logicalPos = Mat4::TransformPoint(finalRot, c.logicalPos);
                     c.logicalPos.x = std::round(c.logicalPos.x);
                     c.logicalPos.y = std::round(c.logicalPos.y);
                     c.logicalPos.z = std::round(c.logicalPos.z);
 
-                    // Update resting base transform
                     c.baseTransform = Mat4::Multiply(finalRot, c.baseTransform);
-
-                    // Snap translation to exact grid integer
                     c.baseTransform.m[12] = c.logicalPos.x;
                     c.baseTransform.m[13] = c.logicalPos.y;
                     c.baseTransform.m[14] = c.logicalPos.z;
 
-                    // Re-orthonormalize rotational elements
                     for (int i = 0; i < 16; ++i) {
                         if (i != 12 && i != 13 && i != 14 && i != 15) {
                             if (std::abs(c.baseTransform.m[i]) < 0.05f) c.baseTransform.m[i] = 0.0f;
@@ -623,7 +743,7 @@ void RenderFrame() {
         }
     }
 
-    // Responsive Camera Setup
+    // Camera calculation
     float aspect = (float)w / (float)h;
     float baseRadius = 8.5f;
     if (aspect < 1.0f) {
@@ -641,8 +761,7 @@ void RenderFrame() {
     Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
     Mat4 viewProj = Mat4::Multiply(proj, view);
 
-    // OpenGL ES 2.0 State & Clear
-    glClearColor(0.047f, 0.047f, 0.055f, 1.0f); // Sleek dark #0c0c0e background
+    glClearColor(0.04f, 0.04f, 0.045f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glEnable(GL_DEPTH_TEST);
@@ -652,7 +771,6 @@ void RenderFrame() {
 
     glUseProgram(gProgram);
 
-    // Bind Vertex Buffers
     glBindBuffer(GL_ARRAY_BUFFER, gVBO);
     glEnableVertexAttribArray(gLocPosition);
     glVertexAttribPointer(gLocPosition, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
@@ -672,7 +790,6 @@ void RenderFrame() {
         animRot = Mat4::Rotate(gAnimAxis, gAnimTarget * gAnimProgress);
     }
 
-    // Render all 27 cubies
     for (const auto& c : gCubies) {
         Mat4 model = c.baseTransform;
         if (gIsAnimating) {
@@ -686,7 +803,6 @@ void RenderFrame() {
         glUniformMatrix4fv(gLocMVP, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(gLocModel, 1, GL_FALSE, model.m);
 
-        // Draw each of the 6 faces with its designated texture
         for (int f = 0; f < 6; ++f) {
             glBindTexture(GL_TEXTURE_2D, gTextures[c.texIndices[f]]);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void*)(f * 6 * sizeof(unsigned short)));
@@ -765,7 +881,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Compile Shaders
     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &VS_SOURCE, nullptr);
     glCompileShader(vs);
@@ -786,7 +901,6 @@ int main(int argc, char* argv[]) {
     gLocModel    = glGetUniformLocation(gProgram, "uModel");
     gLocTexture  = glGetUniformLocation(gProgram, "uTexture");
 
-    // Upload Geometry VBO & IBO
     glGenBuffers(1, &gVBO);
     glBindBuffer(GL_ARRAY_BUFFER, gVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(gCubeVertices), gCubeVertices, GL_STATIC_DRAW);

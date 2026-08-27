@@ -3,32 +3,266 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover"/>
-    <title>Rubik's Cube</title>
+    <title>3D Rubik's Cube</title>
     <style>
-      body { margin: 0; padding: 0; background-color: #0a0a0a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-      canvas.emscripten { border: 0px none; background-color: #0a0a0a; width: 100vw; height: 100vh; display: block; touch-action: none; }
-      #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: env(safe-area-inset-top, 20px) 20px env(safe-area-inset-bottom, 40px) 20px; box-sizing: border-box; }
-      .scramble-btn { pointer-events: auto; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 16px 32px; border-radius: 30px; font-weight: 800; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; align-self: center; margin-bottom: 20px; transition: all 0.2s; box-shadow: 0 10px 20px rgba(0,0,0,0.5); text-transform: uppercase; }
-      .scramble-btn:active { background: rgba(255,255,255,0.25); transform: scale(0.95); }
-      .header { pointer-events: auto; text-align: center; color: white; margin-top: 10px; opacity: 0.6; font-size: 12px; letter-spacing: 4px; font-weight: bold; }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #0b0b0e;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      canvas.emscripten {
+        border: 0px none;
+        background-color: #0b0b0e;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        touch-action: none;
+      }
+      #ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 24px) 16px;
+      }
+      .top-bar {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        pointer-events: auto;
+      }
+      .title {
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        opacity: 0.9;
+        text-transform: uppercase;
+      }
+      .subtitle {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 11px;
+        letter-spacing: 0.5px;
+      }
+      
+      .view-controls {
+        position: absolute;
+        right: 16px;
+        top: calc(env(safe-area-inset-top, 16px) + 50px);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        pointer-events: auto;
+      }
+      .view-btn {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        cursor: pointer;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        transition: transform 0.1s, background 0.1s;
+      }
+      .view-btn:active {
+        background: rgba(255, 255, 255, 0.25);
+        transform: scale(0.92);
+      }
+
+      .bottom-controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        pointer-events: auto;
+        margin-bottom: 8px;
+      }
+
+      .notation-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(20, 20, 26, 0.75);
+        padding: 6px 10px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        max-width: 100%;
+        overflow-x: auto;
+      }
+      .face-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.1s, background 0.1s;
+      }
+      .face-btn:active {
+        background: rgba(255, 255, 255, 0.28);
+        transform: scale(0.9);
+      }
+      .invert-toggle {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: rgba(255, 255, 255, 0.7);
+        padding: 0 10px;
+        height: 36px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.15s;
+        margin-left: 2px;
+      }
+      .invert-toggle.active {
+        background: #3b82f6;
+        color: white;
+        border-color: #60a5fa;
+      }
+
+      .action-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .action-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: white;
+        padding: 13px 26px;
+        border-radius: 26px;
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 1px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        cursor: pointer;
+        transition: all 0.15s;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        text-transform: uppercase;
+      }
+      .action-btn.primary {
+        background: #ffffff;
+        color: #0b0b0e;
+        border-color: #ffffff;
+      }
+      .action-btn:active {
+        transform: scale(0.95);
+        opacity: 0.85;
+      }
     </style>
   </head>
   <body>
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    
     <div id="ui-layer">
-        <div class="header">3D PUZZLE ENGINE</div>
-        <button class="scramble-btn" id="scramble-btn" onclick="triggerScramble()">Scramble</button>
+      <div class="top-bar">
+        <div class="title">3D Rubik's Cube</div>
+        <div class="subtitle">Swipe cube to turn layers • Drag space to orbit</div>
+      </div>
+
+      <div class="view-controls">
+        <button class="view-btn" onclick="rotateView(0)" title="Rotate Left">◀</button>
+        <button class="view-btn" onclick="rotateView(1)" title="Rotate Right">▶</button>
+        <button class="view-btn" onclick="rotateView(2)" title="Rotate Up">▲</button>
+        <button class="view-btn" onclick="rotateView(3)" title="Rotate Down">▼</button>
+      </div>
+
+      <div class="bottom-controls">
+        <!-- Quick Layer Notation Buttons -->
+        <div class="notation-bar">
+          <button class="face-btn" onclick="turnFace(0)" title="Up Layer">U</button>
+          <button class="face-btn" onclick="turnFace(1)" title="Down Layer">D</button>
+          <button class="face-btn" onclick="turnFace(2)" title="Left Layer">L</button>
+          <button class="face-btn" onclick="turnFace(3)" title="Right Layer">R</button>
+          <button class="face-btn" onclick="turnFace(4)" title="Front Layer">F</button>
+          <button class="face-btn" onclick="turnFace(5)" title="Back Layer">B</button>
+          <button class="invert-toggle" id="invert-btn" onclick="toggleInvert()" title="Invert Direction (Counter-Clockwise)">Prime ′</button>
+        </div>
+
+        <div class="action-bar">
+          <button class="action-btn primary" onclick="triggerScramble()">Scramble</button>
+          <button class="action-btn" onclick="triggerReset()">Reset</button>
+        </div>
+      </div>
     </div>
+
     <script type='text/javascript'>
+      var isPrimeActive = false;
+
+      function toggleInvert() {
+        isPrimeActive = !isPrimeActive;
+        var btn = document.getElementById('invert-btn');
+        if (btn) {
+          if (isPrimeActive) {
+            btn.classList.add('active');
+            btn.innerText = "Prime ′ (ON)";
+          } else {
+            btn.classList.remove('active');
+            btn.innerText = "Prime ′";
+          }
+        }
+      }
+
+      function turnFace(faceIndex) {
+        var dir = isPrimeActive ? -1 : 1;
+        if (typeof Module._turn_face === 'function') {
+          Module._turn_face(faceIndex, dir);
+        } else if (typeof Module.ccall === 'function') {
+          Module.ccall('turn_face', 'v', ['number', 'number'], [faceIndex, dir]);
+        }
+      }
+
+      function rotateView(dir) {
+        if (typeof Module._rotate_view === 'function') {
+          Module._rotate_view(dir);
+        } else if (typeof Module.ccall === 'function') {
+          Module.ccall('rotate_view', 'v', ['number'], [dir]);
+        }
+      }
+
       function triggerScramble() {
         if (typeof Module._scramble_cube === 'function') {
           Module._scramble_cube();
         } else if (typeof Module.ccall === 'function') {
           Module.ccall('scramble_cube', 'v', []);
-        } else {
-          console.log('Module loading...');
         }
       }
+
+      function triggerReset() {
+        if (typeof Module._reset_cube === 'function') {
+          Module._reset_cube();
+        } else if (typeof Module.ccall === 'function') {
+          Module.ccall('reset_cube', 'v', []);
+        }
+      }
+
       var Module = {
         webglContextAttributes: {
           depth: true,
@@ -42,7 +276,10 @@
         print: function(text) { console.log(text); },
         canvas: (function() {
           var canvas = document.getElementById('canvas');
-          canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost.'); e.preventDefault(); }, false);
+          canvas.addEventListener("webglcontextlost", function(e) {
+            alert('WebGL context lost.');
+            e.preventDefault();
+          }, false);
           return canvas;
         })(),
         setStatus: function(text) {},
