@@ -463,8 +463,14 @@ extern "C" {
 SDL_Window* gWindow = nullptr;
 SDL_GLContext gGLContext = nullptr;
 
-bool gIsPointerDown = false;
-bool gTouchStartedOnCube = false;
+enum DragMode {
+    DRAG_NONE = 0,
+    DRAG_FACE_TURN = 1,
+    DRAG_CUBE_ROTATE = 2
+};
+
+DragMode gDragMode = DRAG_NONE;
+bool gFaceTurnTriggered = false;
 Vec2 gTouchStartScreen = {0, 0};
 Vec2 gLastPointerPos = {0, 0};
 
@@ -472,16 +478,6 @@ Vec3 gSwipeStartHitPtLocal = {0, 0, 0};
 int gSwipeStartFace = -1; // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
 struct IntVec3 { int x, y, z; };
 IntVec3 gTouchedCubie = {0, 0, 0};
-
-struct TouchPoint {
-    SDL_FingerID id;
-    float x;
-    float y;
-};
-std::vector<TouchPoint> gActiveTouches;
-bool gIsPinching = false;
-float gLastPinchDist = 0.0f;
-SDL_FingerID gTrackedFingerId = -1;
 
 struct Ray {
     Vec3 origin;
@@ -516,9 +512,14 @@ bool RayIntersectAABB(const Ray& ray, const Vec3& bmin, const Vec3& bmax, float&
 }
 
 void HandlePointerDown(float px, float py, int screenW, int screenH) {
-    gIsPointerDown = true;
+    if (gIsAnimating) {
+        gDragMode = DRAG_NONE;
+        return;
+    }
+
     gTouchStartScreen = {px, py};
     gLastPointerPos = {px, py};
+    gFaceTurnTriggered = false;
 
     float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
     float ndcX = (2.0f * px) / (float)(screenW > 0 ? screenW : 1) - 1.0f;
@@ -539,7 +540,7 @@ void HandlePointerDown(float px, float py, int screenW, int screenH) {
     Vec3 hitPtLocal;
     // Bounding box of the 3x3 cube in local space is [-1.52, 1.52]
     if (RayIntersectAABB(rayLocal, {-1.52f, -1.52f, -1.52f}, {1.52f, 1.52f, 1.52f}, tHit, hitPtLocal)) {
-        gTouchStartedOnCube = true;
+        gDragMode = DRAG_FACE_TURN;
         gSwipeStartHitPtLocal = hitPtLocal;
 
         // Identify which of the 6 faces was touched in local space
@@ -564,30 +565,22 @@ void HandlePointerDown(float px, float py, int screenW, int screenH) {
         int cz = (hitPtLocal.z < -0.5f) ? -1 : ((hitPtLocal.z > 0.5f) ? 1 : 0);
         gTouchedCubie = {cx, cy, cz};
     } else {
-        gTouchStartedOnCube = false;
+        gDragMode = DRAG_CUBE_ROTATE;
     }
 }
 
 void HandlePointerMove(float px, float py, int screenW, int screenH) {
-    if (!gIsPointerDown || gIsPinching) return;
-    float dx = px - gLastPointerPos.x;
-    float dy = py - gLastPointerPos.y;
+    if (gDragMode == DRAG_NONE) return;
 
-    // Guard against huge unexpected coordinate jumps
-    if (std::abs(dx) > 120.0f || std::abs(dy) > 120.0f) {
-        gLastPointerPos = {px, py};
-        return;
-    }
-
-    if (gTouchStartedOnCube) {
-        // We started touching the cube: this gesture is strictly for turning a face/slice!
-        if (!gIsAnimating && gMoveQueue.empty()) {
+    if (gDragMode == DRAG_FACE_TURN) {
+        // STRICT RULE: We NEVER tumble the cube while in face turn mode!
+        if (!gFaceTurnTriggered && !gIsAnimating && gMoveQueue.empty()) {
             float totalDx = px - gTouchStartScreen.x;
             float totalDy = py - gTouchStartScreen.y;
             float dragDistSq = totalDx * totalDx + totalDy * totalDy;
 
-            // When pointer moves at least ~14 screen pixels from start
-            if (dragDistSq >= 196.0f) {
+            // When pointer moves at least ~10 screen pixels (100 px^2)
+            if (dragDistSq >= 100.0f) {
                 float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
                 Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
                 Mat4 view = Mat4::LookAt({0, 0, gCamRadius}, {0, 0, 0}, {0, 1, 0});
@@ -669,105 +662,37 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
                 }
 
                 StartRotation(axis, slice, angle, 9.0f);
-                gTouchStartedOnCube = false; // Swipe consumed!
+                gFaceTurnTriggered = true; // Turn consumed, remain in DRAG_FACE_TURN mode
             }
         }
-    } else {
-        // Limitless, free 3D rotation of the entire cube in space (no gimbal lock, no bounds)
+    } else if (gDragMode == DRAG_CUBE_ROTATE) {
+        float dx = px - gLastPointerPos.x;
+        float dy = py - gLastPointerPos.y;
+        gLastPointerPos = {px, py};
+
+        // Limitless, free 3D rotation of the entire cube in space
         Mat4 rotX = Mat4::Rotate({1.0f, 0.0f, 0.0f}, dy * 0.007f);
         Mat4 rotY = Mat4::Rotate({0.0f, 1.0f, 0.0f}, dx * 0.007f);
         Mat4 dRot = Mat4::Multiply(rotX, rotY);
         gCubeOrientation = Mat4::Multiply(dRot, gCubeOrientation);
         OrthonormalizeMatrix(gCubeOrientation);
     }
-
-    gLastPointerPos = {px, py};
 }
 
 void HandlePointerUp() {
-    gIsPointerDown = false;
-    gTouchStartedOnCube = false;
+    gDragMode = DRAG_NONE;
+    gFaceTurnTriggered = false;
 }
 
-void HandleTouchDown(SDL_FingerID id, float normX, float normY, int screenW, int screenH) {
-    bool found = false;
-    for (auto& t : gActiveTouches) {
-        if (t.id == id) {
-            t.x = normX;
-            t.y = normY;
-            found = true;
-            break;
-        }
+extern "C" {
+    EXPORT_FN void on_pointer_down(float px, float py, int screenW, int screenH) {
+        HandlePointerDown(px, py, screenW, screenH);
     }
-    if (!found) {
-        gActiveTouches.push_back({ id, normX, normY });
+    EXPORT_FN void on_pointer_move(float px, float py, int screenW, int screenH) {
+        HandlePointerMove(px, py, screenW, screenH);
     }
-
-    if (gActiveTouches.size() >= 2) {
-        // Multi-touch pinch zoom started: CANCEL any single-touch rotation/face turn
-        gIsPinching = true;
-        gIsPointerDown = false;
-        gTouchStartedOnCube = false;
-        gTrackedFingerId = -1;
-
-        float dx = (gActiveTouches[0].x - gActiveTouches[1].x) * (float)screenW;
-        float dy = (gActiveTouches[0].y - gActiveTouches[1].y) * (float)screenH;
-        gLastPinchDist = std::sqrt(dx * dx + dy * dy);
-    } else if (gActiveTouches.size() == 1 && !gIsPinching) {
-        gTrackedFingerId = id;
-        HandlePointerDown(normX * (float)screenW, normY * (float)screenH, screenW, screenH);
-    }
-}
-
-void HandleTouchMove(SDL_FingerID id, float normX, float normY, int screenW, int screenH) {
-    for (auto& t : gActiveTouches) {
-        if (t.id == id) {
-            t.x = normX;
-            t.y = normY;
-            break;
-        }
-    }
-
-    if (gActiveTouches.size() >= 2 || gIsPinching) {
-        // We are pinching: strictly zoom, NO pointer or cube rotation!
-        gIsPointerDown = false;
-        gTouchStartedOnCube = false;
-
-        if (gActiveTouches.size() >= 2) {
-            float dx = (gActiveTouches[0].x - gActiveTouches[1].x) * (float)screenW;
-            float dy = (gActiveTouches[0].y - gActiveTouches[1].y) * (float)screenH;
-            float curDist = std::sqrt(dx * dx + dy * dy);
-            if (gLastPinchDist > 1.0f) {
-                float delta = (curDist - gLastPinchDist) * 0.015f;
-                ZoomCamera(delta);
-            }
-            gLastPinchDist = curDist;
-        }
-    } else if (gActiveTouches.size() == 1 && !gIsPinching && id == gTrackedFingerId) {
-        HandlePointerMove(normX * (float)screenW, normY * (float)screenH, screenW, screenH);
-    }
-}
-
-void HandleTouchUp(SDL_FingerID id) {
-    for (auto it = gActiveTouches.begin(); it != gActiveTouches.end(); ) {
-        if (it->id == id) {
-            it = gActiveTouches.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    if (gActiveTouches.empty()) {
-        gIsPinching = false;
-        gLastPinchDist = 0.0f;
-        gTrackedFingerId = -1;
+    EXPORT_FN void on_pointer_up() {
         HandlePointerUp();
-    } else if (gActiveTouches.size() == 1) {
-        // Transitioning back to 1 finger: Keep rotation disabled until all fingers release
-        gIsPinching = false;
-        gIsPointerDown = false;
-        gTouchStartedOnCube = false;
-        gTrackedFingerId = -1;
     }
 }
 
@@ -905,25 +830,23 @@ void ProcessEvents() {
             exit(0);
 #endif
         } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-            if (gActiveTouches.empty() && !gIsPinching) {
-                HandlePointerDown((float)e.button.x * scaleX, (float)e.button.y * scaleY, screenW, screenH);
-            }
+            HandlePointerDown((float)e.button.x * scaleX, (float)e.button.y * scaleY, screenW, screenH);
         } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
-            if (gActiveTouches.empty()) {
-                HandlePointerUp();
-            }
+            HandlePointerUp();
         } else if (e.type == SDL_MOUSEMOTION) {
-            if (gActiveTouches.empty() && gIsPointerDown && !gIsPinching) {
+            if (gDragMode != DRAG_NONE) {
                 HandlePointerMove((float)e.motion.x * scaleX, (float)e.motion.y * scaleY, screenW, screenH);
             }
         } else if (e.type == SDL_MOUSEWHEEL) {
             ZoomCamera((float)e.wheel.y * 0.6f);
         } else if (e.type == SDL_FINGERDOWN) {
-            HandleTouchDown(e.tfinger.fingerId, e.tfinger.x, e.tfinger.y, screenW, screenH);
+            HandlePointerDown(e.tfinger.x * (float)screenW, e.tfinger.y * (float)screenH, screenW, screenH);
         } else if (e.type == SDL_FINGERUP) {
-            HandleTouchUp(e.tfinger.fingerId);
+            HandlePointerUp();
         } else if (e.type == SDL_FINGERMOTION) {
-            HandleTouchMove(e.tfinger.fingerId, e.tfinger.x, e.tfinger.y, screenW, screenH);
+            if (gDragMode != DRAG_NONE) {
+                HandlePointerMove(e.tfinger.x * (float)screenW, e.tfinger.y * (float)screenH, screenW, screenH);
+            }
         }
     }
 }
