@@ -473,6 +473,16 @@ int gSwipeStartFace = -1; // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
 struct IntVec3 { int x, y, z; };
 IntVec3 gTouchedCubie = {0, 0, 0};
 
+struct TouchPoint {
+    SDL_FingerID id;
+    float x;
+    float y;
+};
+std::vector<TouchPoint> gActiveTouches;
+bool gIsPinching = false;
+float gLastPinchDist = 0.0f;
+SDL_FingerID gTrackedFingerId = -1;
+
 struct Ray {
     Vec3 origin;
     Vec3 dir;
@@ -559,9 +569,15 @@ void HandlePointerDown(float px, float py, int screenW, int screenH) {
 }
 
 void HandlePointerMove(float px, float py, int screenW, int screenH) {
-    if (!gIsPointerDown) return;
+    if (!gIsPointerDown || gIsPinching) return;
     float dx = px - gLastPointerPos.x;
     float dy = py - gLastPointerPos.y;
+
+    // Guard against huge unexpected coordinate jumps
+    if (std::abs(dx) > 120.0f || std::abs(dy) > 120.0f) {
+        gLastPointerPos = {px, py};
+        return;
+    }
 
     if (gTouchStartedOnCube) {
         // We started touching the cube: this gesture is strictly for turning a face/slice!
@@ -671,6 +687,88 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
 void HandlePointerUp() {
     gIsPointerDown = false;
     gTouchStartedOnCube = false;
+}
+
+void HandleTouchDown(SDL_FingerID id, float normX, float normY, int screenW, int screenH) {
+    bool found = false;
+    for (auto& t : gActiveTouches) {
+        if (t.id == id) {
+            t.x = normX;
+            t.y = normY;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        gActiveTouches.push_back({ id, normX, normY });
+    }
+
+    if (gActiveTouches.size() >= 2) {
+        // Multi-touch pinch zoom started: CANCEL any single-touch rotation/face turn
+        gIsPinching = true;
+        gIsPointerDown = false;
+        gTouchStartedOnCube = false;
+        gTrackedFingerId = -1;
+
+        float dx = (gActiveTouches[0].x - gActiveTouches[1].x) * (float)screenW;
+        float dy = (gActiveTouches[0].y - gActiveTouches[1].y) * (float)screenH;
+        gLastPinchDist = std::sqrt(dx * dx + dy * dy);
+    } else if (gActiveTouches.size() == 1 && !gIsPinching) {
+        gTrackedFingerId = id;
+        HandlePointerDown(normX * (float)screenW, normY * (float)screenH, screenW, screenH);
+    }
+}
+
+void HandleTouchMove(SDL_FingerID id, float normX, float normY, int screenW, int screenH) {
+    for (auto& t : gActiveTouches) {
+        if (t.id == id) {
+            t.x = normX;
+            t.y = normY;
+            break;
+        }
+    }
+
+    if (gActiveTouches.size() >= 2 || gIsPinching) {
+        // We are pinching: strictly zoom, NO pointer or cube rotation!
+        gIsPointerDown = false;
+        gTouchStartedOnCube = false;
+
+        if (gActiveTouches.size() >= 2) {
+            float dx = (gActiveTouches[0].x - gActiveTouches[1].x) * (float)screenW;
+            float dy = (gActiveTouches[0].y - gActiveTouches[1].y) * (float)screenH;
+            float curDist = std::sqrt(dx * dx + dy * dy);
+            if (gLastPinchDist > 1.0f) {
+                float delta = (curDist - gLastPinchDist) * 0.015f;
+                ZoomCamera(delta);
+            }
+            gLastPinchDist = curDist;
+        }
+    } else if (gActiveTouches.size() == 1 && !gIsPinching && id == gTrackedFingerId) {
+        HandlePointerMove(normX * (float)screenW, normY * (float)screenH, screenW, screenH);
+    }
+}
+
+void HandleTouchUp(SDL_FingerID id) {
+    for (auto it = gActiveTouches.begin(); it != gActiveTouches.end(); ) {
+        if (it->id == id) {
+            it = gActiveTouches.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    if (gActiveTouches.empty()) {
+        gIsPinching = false;
+        gLastPinchDist = 0.0f;
+        gTrackedFingerId = -1;
+        HandlePointerUp();
+    } else if (gActiveTouches.size() == 1) {
+        // Transitioning back to 1 finger: Keep rotation disabled until all fingers release
+        gIsPinching = false;
+        gIsPointerDown = false;
+        gTouchStartedOnCube = false;
+        gTrackedFingerId = -1;
+    }
 }
 
 // -------------------------------------------------------------
@@ -807,21 +905,25 @@ void ProcessEvents() {
             exit(0);
 #endif
         } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-            HandlePointerDown((float)e.button.x * scaleX, (float)e.button.y * scaleY, screenW, screenH);
+            if (gActiveTouches.empty() && !gIsPinching) {
+                HandlePointerDown((float)e.button.x * scaleX, (float)e.button.y * scaleY, screenW, screenH);
+            }
         } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
-            HandlePointerUp();
-        } else if (e.type == SDL_MOUSEMOTION && gIsPointerDown) {
-            HandlePointerMove((float)e.motion.x * scaleX, (float)e.motion.y * scaleY, screenW, screenH);
+            if (gActiveTouches.empty()) {
+                HandlePointerUp();
+            }
+        } else if (e.type == SDL_MOUSEMOTION) {
+            if (gActiveTouches.empty() && gIsPointerDown && !gIsPinching) {
+                HandlePointerMove((float)e.motion.x * scaleX, (float)e.motion.y * scaleY, screenW, screenH);
+            }
         } else if (e.type == SDL_MOUSEWHEEL) {
             ZoomCamera((float)e.wheel.y * 0.6f);
-        } else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers >= 2) {
-            ZoomCamera(e.mgesture.dDist * 16.0f);
         } else if (e.type == SDL_FINGERDOWN) {
-            HandlePointerDown(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
+            HandleTouchDown(e.tfinger.fingerId, e.tfinger.x, e.tfinger.y, screenW, screenH);
         } else if (e.type == SDL_FINGERUP) {
-            HandlePointerUp();
-        } else if (e.type == SDL_FINGERMOTION && gIsPointerDown) {
-            HandlePointerMove(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
+            HandleTouchUp(e.tfinger.fingerId);
+        } else if (e.type == SDL_FINGERMOTION) {
+            HandleTouchMove(e.tfinger.fingerId, e.tfinger.x, e.tfinger.y, screenW, screenH);
         }
     }
 }
