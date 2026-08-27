@@ -131,6 +131,14 @@ struct Mat4 {
         return r;
     }
 
+    static Mat4 Transpose3x3(const Mat4& a) {
+        Mat4 r = Identity();
+        r.m[0] = a.m[0]; r.m[1] = a.m[4]; r.m[2] = a.m[8];
+        r.m[4] = a.m[1]; r.m[5] = a.m[5]; r.m[6] = a.m[9];
+        r.m[8] = a.m[2]; r.m[9] = a.m[6]; r.m[10] = a.m[10];
+        return r;
+    }
+
     static Vec3 TransformPoint(const Mat4& m, const Vec3& p) {
         float x = m.m[0]*p.x + m.m[4]*p.y + m.m[8]*p.z  + m.m[12];
         float y = m.m[1]*p.x + m.m[5]*p.y + m.m[9]*p.z  + m.m[13];
@@ -141,7 +149,26 @@ struct Mat4 {
         }
         return { x, y, z };
     }
+
+    static Vec3 TransformVector3x3(const Mat4& m, const Vec3& v) {
+        return {
+            m.m[0]*v.x + m.m[4]*v.y + m.m[8]*v.z,
+            m.m[1]*v.x + m.m[5]*v.y + m.m[9]*v.z,
+            m.m[2]*v.x + m.m[6]*v.y + m.m[10]*v.z
+        };
+    }
 };
+
+inline void OrthonormalizeMatrix(Mat4& m) {
+    Vec3 x = { m.m[0], m.m[1], m.m[2] };
+    Vec3 y = { m.m[4], m.m[5], m.m[6] };
+    x = Vec3Normalize(x);
+    Vec3 z = Vec3Normalize(Vec3Cross(x, y));
+    y = Vec3Normalize(Vec3Cross(z, x));
+    m.m[0] = x.x; m.m[1] = x.y; m.m[2] = x.z;
+    m.m[4] = y.x; m.m[5] = y.y; m.m[6] = y.z;
+    m.m[8] = z.x; m.m[9] = z.y; m.m[10] = z.z;
+}
 
 Vec2 Project3DToScreen(const Vec3& pt, const Mat4& vp, int w, int h) {
     float x = vp.m[0]*pt.x + vp.m[4]*pt.y + vp.m[8]*pt.z + vp.m[12];
@@ -181,10 +208,10 @@ const char* FS_SOURCE =
     "varying vec2 vTexCoord;\n"
     "uniform sampler2D uTexture;\n"
     "void main() {\n"
-    "    vec3 lightDir = normalize(vec3(0.4, 0.85, 0.6));\n"
+    "    vec3 lightDir = normalize(vec3(0.35, 0.85, 0.7));\n"
     "    float diff = max(dot(vNormal, lightDir), 0.0);\n"
     "    vec3 ambient = vec3(0.72);\n"
-    "    vec3 diffuse = vec3(0.28) * diff;\n"
+    "    vec3 diffuse = vec3(0.32) * diff;\n"
     "    vec3 lighting = ambient + diffuse;\n"
     "    vec4 tex = texture2D(uTexture, vTexCoord);\n"
     "    gl_FragColor = vec4(tex.rgb * lighting, tex.a);\n"
@@ -332,7 +359,7 @@ struct Cubie {
 };
 
 struct Move {
-    int axis;     // 0=X, 1=Y, 2=Z
+    int axis;     // 0=X, 1=Y, 2=Z in Cube Local Space
     int slice;    // -1, 0, 1
     float angle;  // radians
     float speed;
@@ -348,6 +375,17 @@ float gCurrentAnimSpeed = 8.0f;
 Vec3 gAnimAxis = {0,0,0};
 int gAnimSliceAxis = 0;
 int gAnimSliceValue = 0;
+
+// Entire Cube Orientation Matrix (Limitless 3D Free Rotation)
+Mat4 gCubeOrientation = Mat4::Identity();
+float gCamRadius = 8.5f;
+
+void InitDefaultOrientation() {
+    // Initial isometric view (30 deg pitch, 45 deg yaw)
+    Mat4 rotX = Mat4::Rotate({1, 0, 0}, 28.0f * DEG2RAD_F);
+    Mat4 rotY = Mat4::Rotate({0, 1, 0}, 45.0f * DEG2RAD_F);
+    gCubeOrientation = Mat4::Multiply(rotX, rotY);
+}
 
 void InitCubeModel() {
     gCubies.clear();
@@ -371,7 +409,7 @@ void InitCubeModel() {
     }
 }
 
-void StartRotation(int axis, int slice, float angle, float speed = 8.0f) {
+void StartRotation(int axis, int slice, float angle, float speed = 9.0f) {
     if (gIsAnimating) return;
     gIsAnimating = true;
     gAnimProgress = 0.0f;
@@ -398,61 +436,13 @@ void ResetCube() {
     gMoveQueue.clear();
     gIsAnimating = false;
     InitCubeModel();
+    InitDefaultOrientation();
 }
 
-void TurnFace(int face, int dir) {
-    // face: 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
-    // dir: 1 (CW) or -1 (CCW)
-    Move m;
-    float sign = (float)dir;
-    if (face == 0) { // U (top: +Y, slice 1)
-        m.axis = 1; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
-    } else if (face == 1) { // D (bottom: -Y, slice -1)
-        m.axis = 1; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
-    } else if (face == 2) { // L (left: -X, slice -1)
-        m.axis = 0; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
-    } else if (face == 3) { // R (right: +X, slice 1)
-        m.axis = 0; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
-    } else if (face == 4) { // F (front: +Z, slice 1)
-        m.axis = 2; m.slice = 1; m.angle = -sign * (PI_F / 2.0f);
-    } else if (face == 5) { // B (back: -Z, slice -1)
-        m.axis = 2; m.slice = -1; m.angle = sign * (PI_F / 2.0f);
-    }
-    m.speed = 9.0f;
-    gMoveQueue.push_back(m);
-}
-
-// -------------------------------------------------------------
-// Interactive Raycasting & Pointer Controls
-// -------------------------------------------------------------
-SDL_Window* gWindow = nullptr;
-SDL_GLContext gGLContext = nullptr;
-
-float gCamAngleX = 45.0f * DEG2RAD_F;
-float gCamAngleY = 28.0f * DEG2RAD_F;
-float gCamRadius = 8.5f;
-
-bool gIsPointerDown = false;
-bool gIsSwipingCube = false;
-Vec2 gTouchStartScreen = {0, 0};
-Vec2 gLastPointerPos = {0, 0};
-
-Vec3 gSwipeStartHitPt = {0, 0, 0};
-int gSwipeStartFace = -1; // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
-struct IntVec3 { int x, y, z; };
-IntVec3 gTouchedCubie = {0, 0, 0};
-
-void RotateView(int dir) {
-    // 0: Left, 1: Right, 2: Up, 3: Down
-    if (dir == 0) gCamAngleX -= 45.0f * DEG2RAD_F;
-    else if (dir == 1) gCamAngleX += 45.0f * DEG2RAD_F;
-    else if (dir == 2) {
-        gCamAngleY += 25.0f * DEG2RAD_F;
-        if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
-    } else if (dir == 3) {
-        gCamAngleY -= 25.0f * DEG2RAD_F;
-        if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
-    }
+void ZoomCamera(float delta) {
+    gCamRadius -= delta;
+    if (gCamRadius < 4.5f) gCamRadius = 4.5f;
+    if (gCamRadius > 20.0f) gCamRadius = 20.0f;
 }
 
 extern "C" {
@@ -462,41 +452,31 @@ extern "C" {
     EXPORT_FN void reset_cube() {
         ResetCube();
     }
-    EXPORT_FN void turn_face(int face, int dir) {
-        TurnFace(face, dir);
-    }
-    EXPORT_FN void rotate_view(int dir) {
-        RotateView(dir);
+    EXPORT_FN void zoom_cube(float delta) {
+        ZoomCamera(delta);
     }
 }
+
+// -------------------------------------------------------------
+// Interactive Raycasting & Pointer Controls
+// -------------------------------------------------------------
+SDL_Window* gWindow = nullptr;
+SDL_GLContext gGLContext = nullptr;
+
+bool gIsPointerDown = false;
+bool gTouchStartedOnCube = false;
+Vec2 gTouchStartScreen = {0, 0};
+Vec2 gLastPointerPos = {0, 0};
+
+Vec3 gSwipeStartHitPtLocal = {0, 0, 0};
+int gSwipeStartFace = -1; // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
+struct IntVec3 { int x, y, z; };
+IntVec3 gTouchedCubie = {0, 0, 0};
 
 struct Ray {
     Vec3 origin;
     Vec3 dir;
 };
-
-Ray GetPointerRay(float screenX, float screenY, int screenW, int screenH, const Mat4& proj, const Mat4& view) {
-    (void)proj;
-    (void)view;
-    float ndcX = (2.0f * screenX) / (float)(screenW > 0 ? screenW : 1) - 1.0f;
-    float ndcY = 1.0f - (2.0f * screenY) / (float)(screenH > 0 ? screenH : 1);
-
-    Vec3 eye = {
-        gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-        gCamRadius * std::sin(gCamAngleY),
-        gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-    };
-
-    Vec3 forward = Vec3Normalize({ -eye.x, -eye.y, -eye.z });
-    Vec3 right = Vec3Normalize(Vec3Cross(forward, {0, 1, 0}));
-    Vec3 up = Vec3Cross(right, forward);
-
-    float fovFactor = std::tan(35.0f * DEG2RAD_F * 0.5f);
-    float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-
-    Vec3 rayDir = Vec3Normalize(forward + right * (ndcX * aspect * fovFactor) + up * (ndcY * fovFactor));
-    return { eye, rayDir };
-}
 
 bool RayIntersectAABB(const Ray& ray, const Vec3& bmin, const Vec3& bmax, float& tOut, Vec3& ptOut) {
     float tmin = (bmin.x - ray.origin.x) / (std::abs(ray.dir.x) > 1e-6f ? ray.dir.x : 1e-6f);
@@ -531,47 +511,50 @@ void HandlePointerDown(float px, float py, int screenW, int screenH) {
     gLastPointerPos = {px, py};
 
     float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-    float baseRadius = 8.5f;
-    gCamRadius = (aspect < 1.0f) ? (baseRadius / (aspect * 1.05f)) : baseRadius;
+    float ndcX = (2.0f * px) / (float)(screenW > 0 ? screenW : 1) - 1.0f;
+    float ndcY = 1.0f - (2.0f * py) / (float)(screenH > 0 ? screenH : 1);
 
-    Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-    Vec3 eye = {
-        gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-        gCamRadius * std::sin(gCamAngleY),
-        gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-    };
-    Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
-    Ray ray = GetPointerRay(px, py, screenW, screenH, proj, view);
+    float fovFactor = std::tan(35.0f * DEG2RAD_F * 0.5f);
+    Vec3 rayDirCamera = Vec3Normalize({ ndcX * aspect * fovFactor, ndcY * fovFactor, -1.0f });
+    Vec3 rayOriginCamera = { 0, 0, gCamRadius };
 
-    float tHit;
-    Vec3 hitPt;
-    if (RayIntersectAABB(ray, {-1.52f, -1.52f, -1.52f}, {1.52f, 1.52f, 1.52f}, tHit, hitPt)) {
-        gIsSwipingCube = true;
-        gSwipeStartHitPt = hitPt;
+    // Transform camera ray into Cube Local Space
+    Mat4 invCubeRot = Mat4::Transpose3x3(gCubeOrientation);
+    Vec3 rayOriginLocal = Mat4::TransformPoint(invCubeRot, rayOriginCamera);
+    Vec3 rayDirLocal = Vec3Normalize(Mat4::TransformVector3x3(invCubeRot, rayDirCamera));
 
-        // Identify which of the 6 faces was touched
-        float distU = std::abs(hitPt.y - 1.5f);
-        float distD = std::abs(hitPt.y - (-1.5f));
-        float distL = std::abs(hitPt.x - (-1.5f));
-        float distR = std::abs(hitPt.x - 1.5f);
-        float distF = std::abs(hitPt.z - 1.5f);
-        float distB = std::abs(hitPt.z - (-1.5f));
+    Ray rayLocal = { rayOriginLocal, rayDirLocal };
+
+    float tHit = 0.0f;
+    Vec3 hitPtLocal;
+    // Bounding box of the 3x3 cube in local space is [-1.52, 1.52]
+    if (RayIntersectAABB(rayLocal, {-1.52f, -1.52f, -1.52f}, {1.52f, 1.52f, 1.52f}, tHit, hitPtLocal)) {
+        gTouchStartedOnCube = true;
+        gSwipeStartHitPtLocal = hitPtLocal;
+
+        // Identify which of the 6 faces was touched in local space
+        float distU = std::abs(hitPtLocal.y - 1.5f);
+        float distD = std::abs(hitPtLocal.y - (-1.5f));
+        float distL = std::abs(hitPtLocal.x - (-1.5f));
+        float distR = std::abs(hitPtLocal.x - 1.5f);
+        float distF = std::abs(hitPtLocal.z - 1.5f);
+        float distB = std::abs(hitPtLocal.z - (-1.5f));
 
         float minDist = distU;
-        gSwipeStartFace = 0; // U
-        if (distD < minDist) { minDist = distD; gSwipeStartFace = 1; }
-        if (distL < minDist) { minDist = distL; gSwipeStartFace = 2; }
-        if (distR < minDist) { minDist = distR; gSwipeStartFace = 3; }
-        if (distF < minDist) { minDist = distF; gSwipeStartFace = 4; }
-        if (distB < minDist) { minDist = distB; gSwipeStartFace = 5; }
+        gSwipeStartFace = 0; // U (+Y)
+        if (distD < minDist) { minDist = distD; gSwipeStartFace = 1; } // D (-Y)
+        if (distL < minDist) { minDist = distL; gSwipeStartFace = 2; } // L (-X)
+        if (distR < minDist) { minDist = distR; gSwipeStartFace = 3; } // R (+X)
+        if (distF < minDist) { minDist = distF; gSwipeStartFace = 4; } // F (+Z)
+        if (distB < minDist) { minDist = distB; gSwipeStartFace = 5; } // B (-Z)
 
-        // Find cubie discrete coordinate (-1, 0, or 1)
-        int cx = (hitPt.x < -0.5f) ? -1 : ((hitPt.x > 0.5f) ? 1 : 0);
-        int cy = (hitPt.y < -0.5f) ? -1 : ((hitPt.y > 0.5f) ? 1 : 0);
-        int cz = (hitPt.z < -0.5f) ? -1 : ((hitPt.z > 0.5f) ? 1 : 0);
+        // Find touched cubie coordinates (-1, 0, or 1) in local space
+        int cx = (hitPtLocal.x < -0.5f) ? -1 : ((hitPtLocal.x > 0.5f) ? 1 : 0);
+        int cy = (hitPtLocal.y < -0.5f) ? -1 : ((hitPtLocal.y > 0.5f) ? 1 : 0);
+        int cz = (hitPtLocal.z < -0.5f) ? -1 : ((hitPtLocal.z > 0.5f) ? 1 : 0);
         gTouchedCubie = {cx, cy, cz};
     } else {
-        gIsSwipingCube = false;
+        gTouchStartedOnCube = false;
     }
 }
 
@@ -580,104 +563,106 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
     float dx = px - gLastPointerPos.x;
     float dy = py - gLastPointerPos.y;
 
-    if (gIsSwipingCube && !gIsAnimating && gMoveQueue.empty()) {
-        float totalDx = px - gTouchStartScreen.x;
-        float totalDy = py - gTouchStartScreen.y;
-        float dragDistSq = totalDx * totalDx + totalDy * totalDy;
+    if (gTouchStartedOnCube) {
+        // We started touching the cube: this gesture is strictly for turning a face/slice!
+        if (!gIsAnimating && gMoveQueue.empty()) {
+            float totalDx = px - gTouchStartScreen.x;
+            float totalDy = py - gTouchStartScreen.y;
+            float dragDistSq = totalDx * totalDx + totalDy * totalDy;
 
-        // When pointer moves at least ~16 screen pixels from start
-        if (dragDistSq >= 256.0f) {
-            float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
-            float baseRadius = 8.5f;
-            float camRad = (aspect < 1.0f) ? (baseRadius / (aspect * 1.05f)) : baseRadius;
-            Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-            Vec3 eye = {
-                camRad * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-                camRad * std::sin(gCamAngleY),
-                camRad * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-            };
-            Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
-            Mat4 viewProj = Mat4::Multiply(proj, view);
+            // When pointer moves at least ~14 screen pixels from start
+            if (dragDistSq >= 196.0f) {
+                float aspect = (float)screenW / (float)(screenH > 0 ? screenH : 1);
+                Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
+                Mat4 view = Mat4::LookAt({0, 0, gCamRadius}, {0, 0, 0}, {0, 1, 0});
+                Mat4 viewProj = Mat4::Multiply(proj, view);
 
-            // Project 3D Face Tangents to Screen Space
-            Vec3 tangA = {0,0,0};
-            Vec3 tangB = {0,0,0};
+                // Local face tangent vectors
+                Vec3 tangA = {0,0,0};
+                Vec3 tangB = {0,0,0};
 
-            if (gSwipeStartFace == 0 || gSwipeStartFace == 1) { // UP (+Y) / DOWN (-Y)
-                tangA = {1.0f, 0.0f, 0.0f}; // +X
-                tangB = {0.0f, 0.0f, 1.0f}; // +Z
-            } else if (gSwipeStartFace == 2 || gSwipeStartFace == 3) { // LEFT (-X) / RIGHT (+X)
-                tangA = {0.0f, 1.0f, 0.0f}; // +Y
-                tangB = {0.0f, 0.0f, 1.0f}; // +Z
-            } else if (gSwipeStartFace == 4 || gSwipeStartFace == 5) { // FRONT (+Z) / BACK (-Z)
-                tangA = {1.0f, 0.0f, 0.0f}; // +X
-                tangB = {0.0f, 1.0f, 0.0f}; // +Y
-            }
-
-            Vec2 scrOrig = Project3DToScreen(gSwipeStartHitPt, viewProj, screenW, screenH);
-            Vec2 scrA    = Project3DToScreen(gSwipeStartHitPt + tangA * 0.5f, viewProj, screenW, screenH);
-            Vec2 scrB    = Project3DToScreen(gSwipeStartHitPt + tangB * 0.5f, viewProj, screenW, screenH);
-
-            Vec2 dirA = { scrA.x - scrOrig.x, scrA.y - scrOrig.y };
-            Vec2 dirB = { scrB.x - scrOrig.x, scrB.y - scrOrig.y };
-
-            float lenA = std::sqrt(dirA.x * dirA.x + dirA.y * dirA.y);
-            float lenB = std::sqrt(dirB.x * dirB.x + dirB.y * dirB.y);
-            if (lenA < 1e-4f) lenA = 1.0f;
-            if (lenB < 1e-4f) lenB = 1.0f;
-
-            float dotA = (totalDx * dirA.x + totalDy * dirA.y) / lenA;
-            float dotB = (totalDx * dirB.x + totalDy * dirB.y) / lenB;
-
-            int axis = 0;
-            int slice = 0;
-            float angle = 0.0f;
-
-            if (std::abs(dotA) >= std::abs(dotB)) {
-                // Dominant movement along Tangent A
-                float sign = (dotA > 0.0f) ? 1.0f : -1.0f;
-
-                if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> turns around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> turns around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> turns around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> turns around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> turns around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> turns around Z axis
-                    axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
+                if (gSwipeStartFace == 0 || gSwipeStartFace == 1) { // UP (+Y) / DOWN (-Y)
+                    tangA = {1.0f, 0.0f, 0.0f}; // +X
+                    tangB = {0.0f, 0.0f, 1.0f}; // +Z
+                } else if (gSwipeStartFace == 2 || gSwipeStartFace == 3) { // LEFT (-X) / RIGHT (+X)
+                    tangA = {0.0f, 1.0f, 0.0f}; // +Y
+                    tangB = {0.0f, 0.0f, 1.0f}; // +Z
+                } else if (gSwipeStartFace == 4 || gSwipeStartFace == 5) { // FRONT (+Z) / BACK (-Z)
+                    tangA = {1.0f, 0.0f, 0.0f}; // +X
+                    tangB = {0.0f, 1.0f, 0.0f}; // +Y
                 }
-            } else {
-                // Dominant movement along Tangent B
-                float sign = (dotB > 0.0f) ? 1.0f : -1.0f;
 
-                if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> turns around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> turns around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> turns around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> turns around X axis
-                    axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> turns around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
-                } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> turns around Y axis
-                    axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
+                // Transform local points to world space with gCubeOrientation, then project to screen
+                Vec3 worldOrig = Mat4::TransformPoint(gCubeOrientation, gSwipeStartHitPtLocal);
+                Vec3 worldA    = Mat4::TransformPoint(gCubeOrientation, gSwipeStartHitPtLocal + tangA * 0.5f);
+                Vec3 worldB    = Mat4::TransformPoint(gCubeOrientation, gSwipeStartHitPtLocal + tangB * 0.5f);
+
+                Vec2 scrOrig = Project3DToScreen(worldOrig, viewProj, screenW, screenH);
+                Vec2 scrA    = Project3DToScreen(worldA, viewProj, screenW, screenH);
+                Vec2 scrB    = Project3DToScreen(worldB, viewProj, screenW, screenH);
+
+                Vec2 dirA = { scrA.x - scrOrig.x, scrA.y - scrOrig.y };
+                Vec2 dirB = { scrB.x - scrOrig.x, scrB.y - scrOrig.y };
+
+                float lenA = std::sqrt(dirA.x * dirA.x + dirA.y * dirA.y);
+                float lenB = std::sqrt(dirB.x * dirB.x + dirB.y * dirB.y);
+                if (lenA < 1e-4f) lenA = 1.0f;
+                if (lenB < 1e-4f) lenB = 1.0f;
+
+                float dotA = (totalDx * dirA.x + totalDy * dirA.y) / lenA;
+                float dotB = (totalDx * dirB.x + totalDy * dirB.y) / lenB;
+
+                int axis = 0;
+                int slice = 0;
+                float angle = 0.0f;
+
+                if (std::abs(dotA) >= std::abs(dotB)) {
+                    // Dominant movement along Tangent A
+                    float sign = (dotA > 0.0f) ? 1.0f : -1.0f;
+
+                    if (gSwipeStartFace == 4) { // FRONT (+Z): tangA is +X -> turn around local Y
+                        axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 5) { // BACK (-Z): tangA is +X -> turn around local Y
+                        axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 0) { // UP (+Y): tangA is +X -> turn around local Z
+                        axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangA is +X -> turn around local Z
+                        axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangA is +Y -> turn around local Z
+                        axis = 2; slice = gTouchedCubie.z; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 2) { // LEFT (-X): tangA is +Y -> turn around local Z
+                        axis = 2; slice = gTouchedCubie.z; angle = sign * (PI_F / 2.0f);
+                    }
+                } else {
+                    // Dominant movement along Tangent B
+                    float sign = (dotB > 0.0f) ? 1.0f : -1.0f;
+
+                    if (gSwipeStartFace == 4) { // FRONT (+Z): tangB is +Y -> turn around local X
+                        axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 5) { // BACK (-Z): tangB is +Y -> turn around local X
+                        axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 0) { // UP (+Y): tangB is +Z -> turn around local X
+                        axis = 0; slice = gTouchedCubie.x; angle = sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 1) { // DOWN (-Y): tangB is +Z -> turn around local X
+                        axis = 0; slice = gTouchedCubie.x; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 3) { // RIGHT (+X): tangB is +Z -> turn around local Y
+                        axis = 1; slice = gTouchedCubie.y; angle = -sign * (PI_F / 2.0f);
+                    } else if (gSwipeStartFace == 2) { // LEFT (-X): tangB is +Z -> turn around local Y
+                        axis = 1; slice = gTouchedCubie.y; angle = sign * (PI_F / 2.0f);
+                    }
                 }
-            }
 
-            StartRotation(axis, slice, angle, 9.0f);
-            gIsSwipingCube = false; // Swipe action consumed
+                StartRotation(axis, slice, angle, 9.0f);
+                gTouchStartedOnCube = false; // Swipe consumed!
+            }
         }
-    } else if (!gIsSwipingCube) {
-        // Smooth camera orbit
-        gCamAngleX -= dx * 0.007f;
-        gCamAngleY += dy * 0.007f;
-        if (gCamAngleY > 80.0f * DEG2RAD_F) gCamAngleY = 80.0f * DEG2RAD_F;
-        if (gCamAngleY < -80.0f * DEG2RAD_F) gCamAngleY = -80.0f * DEG2RAD_F;
+    } else {
+        // Limitless, free 3D rotation of the entire cube in space (no gimbal lock, no bounds)
+        Mat4 rotX = Mat4::Rotate({1.0f, 0.0f, 0.0f}, dy * 0.007f);
+        Mat4 rotY = Mat4::Rotate({0.0f, 1.0f, 0.0f}, dx * 0.007f);
+        Mat4 dRot = Mat4::Multiply(rotX, rotY);
+        gCubeOrientation = Mat4::Multiply(dRot, gCubeOrientation);
+        OrthonormalizeMatrix(gCubeOrientation);
     }
 
     gLastPointerPos = {px, py};
@@ -685,7 +670,7 @@ void HandlePointerMove(float px, float py, int screenW, int screenH) {
 
 void HandlePointerUp() {
     gIsPointerDown = false;
-    gIsSwipingCube = false;
+    gTouchStartedOnCube = false;
 }
 
 // -------------------------------------------------------------
@@ -713,7 +698,7 @@ void RenderFrame() {
         StartRotation(nextMove.axis, nextMove.slice, nextMove.angle, nextMove.speed);
     }
 
-    // Advance animation
+    // Advance slice rotation animation
     if (gIsAnimating) {
         gAnimProgress += gCurrentAnimSpeed * dt;
         if (gAnimProgress >= 1.0f) {
@@ -746,22 +731,10 @@ void RenderFrame() {
         }
     }
 
-    // Camera calculation
+    // Camera setup
     float aspect = (float)w / (float)h;
-    float baseRadius = 8.5f;
-    if (aspect < 1.0f) {
-        gCamRadius = baseRadius / (aspect * 1.05f);
-    } else {
-        gCamRadius = baseRadius;
-    }
-
-    Vec3 eye = {
-        gCamRadius * std::cos(gCamAngleY) * std::sin(gCamAngleX),
-        gCamRadius * std::sin(gCamAngleY),
-        gCamRadius * std::cos(gCamAngleY) * std::cos(gCamAngleX)
-    };
     Mat4 proj = Mat4::Perspective(35.0f * DEG2RAD_F, aspect, 0.1f, 50.0f);
-    Mat4 view = Mat4::LookAt(eye, {0, 0, 0}, {0, 1, 0});
+    Mat4 view = Mat4::LookAt({0, 0, gCamRadius}, {0, 0, 0}, {0, 1, 0});
     Mat4 viewProj = Mat4::Multiply(proj, view);
 
     glClearColor(0.04f, 0.04f, 0.045f, 1.0f);
@@ -794,17 +767,20 @@ void RenderFrame() {
     }
 
     for (const auto& c : gCubies) {
-        Mat4 model = c.baseTransform;
+        Mat4 cubieLocalModel = c.baseTransform;
         if (gIsAnimating) {
             float v = (gAnimSliceAxis == 0) ? c.logicalPos.x : ((gAnimSliceAxis == 1) ? c.logicalPos.y : c.logicalPos.z);
             if (std::abs(v - (float)gAnimSliceValue) < 0.1f) {
-                model = Mat4::Multiply(animRot, c.baseTransform);
+                cubieLocalModel = Mat4::Multiply(animRot, c.baseTransform);
             }
         }
 
-        Mat4 mvp = Mat4::Multiply(viewProj, model);
+        // Apply entire cube orientation
+        Mat4 worldModel = Mat4::Multiply(gCubeOrientation, cubieLocalModel);
+        Mat4 mvp = Mat4::Multiply(viewProj, worldModel);
+
         glUniformMatrix4fv(gLocMVP, 1, GL_FALSE, mvp.m);
-        glUniformMatrix4fv(gLocModel, 1, GL_FALSE, model.m);
+        glUniformMatrix4fv(gLocModel, 1, GL_FALSE, worldModel.m);
 
         for (int f = 0; f < 6; ++f) {
             glBindTexture(GL_TEXTURE_2D, gTextures[c.texIndices[f]]);
@@ -836,6 +812,10 @@ void ProcessEvents() {
             HandlePointerUp();
         } else if (e.type == SDL_MOUSEMOTION && gIsPointerDown) {
             HandlePointerMove((float)e.motion.x * scaleX, (float)e.motion.y * scaleY, screenW, screenH);
+        } else if (e.type == SDL_MOUSEWHEEL) {
+            ZoomCamera((float)e.wheel.y * 0.6f);
+        } else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers >= 2) {
+            ZoomCamera(e.mgesture.dDist * 16.0f);
         } else if (e.type == SDL_FINGERDOWN) {
             HandlePointerDown(e.tfinger.x * screenW, e.tfinger.y * screenH, screenW, screenH);
         } else if (e.type == SDL_FINGERUP) {
@@ -938,6 +918,7 @@ int main(int argc, char* argv[]) {
 
     CreateProceduralTextures();
     InitCubeModel();
+    InitDefaultOrientation();
 
     gLastTime = SDL_GetTicks();
 

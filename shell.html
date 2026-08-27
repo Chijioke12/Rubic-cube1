@@ -9,7 +9,7 @@
       body {
         margin: 0;
         padding: 0;
-        background-color: #0b0b0e;
+        background-color: #0a0a0d;
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         user-select: none;
@@ -17,7 +17,7 @@
       }
       canvas.emscripten {
         border: 0px none;
-        background-color: #0b0b0e;
+        background-color: #0a0a0d;
         width: 100vw;
         height: 100vh;
         display: block;
@@ -33,117 +33,36 @@
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 24px) 16px;
+        padding: env(safe-area-inset-top, 20px) 20px env(safe-area-inset-bottom, 28px) 20px;
       }
       .top-bar {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
         pointer-events: auto;
       }
       .title {
         color: #ffffff;
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 800;
-        letter-spacing: 3px;
-        opacity: 0.9;
+        letter-spacing: 4px;
+        opacity: 0.95;
         text-transform: uppercase;
       }
       .subtitle {
-        color: rgba(255, 255, 255, 0.5);
+        color: rgba(255, 255, 255, 0.45);
         font-size: 11px;
-        letter-spacing: 0.5px;
-      }
-      
-      .view-controls {
-        position: absolute;
-        right: 16px;
-        top: calc(env(safe-area-inset-top, 16px) + 50px);
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        pointer-events: auto;
-      }
-      .view-btn {
-        width: 38px;
-        height: 38px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        color: #ffffff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        cursor: pointer;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        transition: transform 0.1s, background 0.1s;
-      }
-      .view-btn:active {
-        background: rgba(255, 255, 255, 0.25);
-        transform: scale(0.92);
+        letter-spacing: 0.6px;
+        text-align: center;
       }
 
       .bottom-controls {
         display: flex;
-        flex-direction: column;
+        justify-content: center;
         align-items: center;
-        gap: 12px;
         pointer-events: auto;
         margin-bottom: 8px;
-      }
-
-      .notation-bar {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(20, 20, 26, 0.75);
-        padding: 6px 10px;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        max-width: 100%;
-        overflow-x: auto;
-      }
-      .face-btn {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: #ffffff;
-        width: 36px;
-        height: 36px;
-        border-radius: 10px;
-        font-weight: 700;
-        font-size: 13px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: transform 0.1s, background 0.1s;
-      }
-      .face-btn:active {
-        background: rgba(255, 255, 255, 0.28);
-        transform: scale(0.9);
-      }
-      .invert-toggle {
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        color: rgba(255, 255, 255, 0.7);
-        padding: 0 10px;
-        height: 36px;
-        border-radius: 10px;
-        font-size: 12px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 0.15s;
-        margin-left: 2px;
-      }
-      .invert-toggle.active {
-        background: #3b82f6;
-        color: white;
-        border-color: #60a5fa;
       }
 
       .action-bar {
@@ -152,28 +71,28 @@
         align-items: center;
       }
       .action-btn {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.16);
         color: white;
-        padding: 13px 26px;
-        border-radius: 26px;
+        padding: 13px 28px;
+        border-radius: 28px;
         font-weight: 700;
         font-size: 13px;
         letter-spacing: 1px;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         cursor: pointer;
-        transition: all 0.15s;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         text-transform: uppercase;
       }
       .action-btn.primary {
         background: #ffffff;
-        color: #0b0b0e;
+        color: #0a0a0d;
         border-color: #ffffff;
       }
       .action-btn:active {
-        transform: scale(0.95);
+        transform: scale(0.94);
         opacity: 0.85;
       }
     </style>
@@ -184,28 +103,10 @@
     <div id="ui-layer">
       <div class="top-bar">
         <div class="title">3D Rubik's Cube</div>
-        <div class="subtitle">Swipe cube to turn layers • Drag space to orbit</div>
-      </div>
-
-      <div class="view-controls">
-        <button class="view-btn" onclick="rotateView(0)" title="Rotate Left">◀</button>
-        <button class="view-btn" onclick="rotateView(1)" title="Rotate Right">▶</button>
-        <button class="view-btn" onclick="rotateView(2)" title="Rotate Up">▲</button>
-        <button class="view-btn" onclick="rotateView(3)" title="Rotate Down">▼</button>
+        <div class="subtitle">Drag cube to turn layers • Drag background to rotate • Scroll / Pinch to zoom</div>
       </div>
 
       <div class="bottom-controls">
-        <!-- Quick Layer Notation Buttons -->
-        <div class="notation-bar">
-          <button class="face-btn" onclick="turnFace(0)" title="Up Layer">U</button>
-          <button class="face-btn" onclick="turnFace(1)" title="Down Layer">D</button>
-          <button class="face-btn" onclick="turnFace(2)" title="Left Layer">L</button>
-          <button class="face-btn" onclick="turnFace(3)" title="Right Layer">R</button>
-          <button class="face-btn" onclick="turnFace(4)" title="Front Layer">F</button>
-          <button class="face-btn" onclick="turnFace(5)" title="Back Layer">B</button>
-          <button class="invert-toggle" id="invert-btn" onclick="toggleInvert()" title="Invert Direction (Counter-Clockwise)">Prime ′</button>
-        </div>
-
         <div class="action-bar">
           <button class="action-btn primary" onclick="triggerScramble()">Scramble</button>
           <button class="action-btn" onclick="triggerReset()">Reset</button>
@@ -214,39 +115,6 @@
     </div>
 
     <script type='text/javascript'>
-      var isPrimeActive = false;
-
-      function toggleInvert() {
-        isPrimeActive = !isPrimeActive;
-        var btn = document.getElementById('invert-btn');
-        if (btn) {
-          if (isPrimeActive) {
-            btn.classList.add('active');
-            btn.innerText = "Prime ′ (ON)";
-          } else {
-            btn.classList.remove('active');
-            btn.innerText = "Prime ′";
-          }
-        }
-      }
-
-      function turnFace(faceIndex) {
-        var dir = isPrimeActive ? -1 : 1;
-        if (typeof Module._turn_face === 'function') {
-          Module._turn_face(faceIndex, dir);
-        } else if (typeof Module.ccall === 'function') {
-          Module.ccall('turn_face', 'v', ['number', 'number'], [faceIndex, dir]);
-        }
-      }
-
-      function rotateView(dir) {
-        if (typeof Module._rotate_view === 'function') {
-          Module._rotate_view(dir);
-        } else if (typeof Module.ccall === 'function') {
-          Module.ccall('rotate_view', 'v', ['number'], [dir]);
-        }
-      }
-
       function triggerScramble() {
         if (typeof Module._scramble_cube === 'function') {
           Module._scramble_cube();
@@ -262,6 +130,49 @@
           Module.ccall('reset_cube', 'v', []);
         }
       }
+
+      function sendZoom(delta) {
+        if (typeof Module._zoom_cube === 'function') {
+          Module._zoom_cube(delta);
+        } else if (typeof Module.ccall === 'function') {
+          Module.ccall('zoom_cube', 'v', ['number'], [delta]);
+        }
+      }
+
+      // Wheel Zoom Listener
+      window.addEventListener('wheel', function(e) {
+        var delta = -e.deltaY * 0.003;
+        sendZoom(delta);
+      }, { passive: true });
+
+      // Multi-Touch Pinch to Zoom
+      var initialPinchDist = null;
+      window.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+          var dx = e.touches[0].clientX - e.touches[1].clientX;
+          var dy = e.touches[0].clientY - e.touches[1].clientY;
+          initialPinchDist = Math.hypot(dx, dy);
+        } else {
+          initialPinchDist = null;
+        }
+      }, { passive: true });
+
+      window.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2 && initialPinchDist !== null) {
+          var dx = e.touches[0].clientX - e.touches[1].clientX;
+          var dy = e.touches[0].clientY - e.touches[1].clientY;
+          var currentDist = Math.hypot(dx, dy);
+          var delta = (currentDist - initialPinchDist) * 0.015;
+          initialPinchDist = currentDist;
+          sendZoom(delta);
+        }
+      }, { passive: true });
+
+      window.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) {
+          initialPinchDist = null;
+        }
+      }, { passive: true });
 
       var Module = {
         webglContextAttributes: {
